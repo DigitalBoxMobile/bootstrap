@@ -2,7 +2,7 @@
 
 Документ для команд iOS и Android. Реализация должна быть возможна без чтения Python-кода репозитория;
 референс — `bootstrap/contract.py`, проверка реализации — `testdata/` (`testdata/README.md`).
-Обоснования решений — `docs/requests/client-bootstrap-config/design.md`.
+Обоснования решений — `docs/adr/0001-signed-bootstrap-manifests.md`.
 
 ## Что получает клиент
 
@@ -82,7 +82,36 @@
 Домен из `base_domains` живой, если на `https://<api-host>.<domain><health_path>` за `connect_timeout_ms`
 установлено TLS-соединение и получен **любой HTTP-ответ**; статус не учитывается. Так проверяется весь путь
 DNS → TLS → Traefik. Опрос — каждые `probe_interval_s`, обновление манифеста — каждые `refresh_interval_s`
-(и при провале всех известных доменов). Остальное (кэш, порядок опроса) — `design.md` §3.
+(и при провале всех известных доменов).
+
+- Активный базовый домен один на приложение: домены пробуются по порядку `base_domains`, первый живой запоминается,
+  все известные приложению поддомены строятся от него. Раз в `probe_interval_s` основной домен пробуется снова —
+  возврат на него автоматический.
+- Абсолютные URL из ответов backend (картинки, файлы, ссылки оплаты, websocket): если хост оканчивается на любой
+  из `base_domains`, базовый домен заменяется на активный.
+- Deep links, OAuth redirect и платёжные SDK в манифесте не участвуют — у них внешние регистрации.
+
+## Получение и кеш
+
+```
+cached   = verify(load_cache()) or verify(embedded)
+use(cached)                                    # приложение работает сразу
+if cache_age > refresh_interval_s or last API error was DNS/connect:
+    results = hedged_fetch(cached.mirrors ∪ embedded.mirrors, total_timeout = 5 s, stagger = 300 ms)
+    best = max(version, [m for m in results if accepted(m)])
+    if best and best.version >= cached.version: save(best); use(best)
+```
+
+- Встроенный в сборку манифест — такой же JWS, проверяется тем же кодом; отдельного пути «нулевого дня» нет.
+- Кеш перепроверяется при каждой загрузке (устройство может быть рутовано). Версия и кеш — в Keychain (iOS)
+  или EncryptedSharedPreferences (Android).
+- Зеркала опрашиваются параллельно со ступенькой 300 мс; берётся **максимальная** версия среди принятых — отстающее
+  и враждебно застывшее зеркало обрабатываются одинаково. Повторные запросы — с `If-None-Match`.
+- Любая ошибка DNS или соединения в основном HTTP-клиенте — триггер немедленного обновления манифеста и перевыбора домена.
+- Часы устройства влияют только на флаг `expired`.
+
+Ed25519: iOS — CryptoKit `Curve25519.Signing` (iOS 13+); Android — Tink или BouncyCastle
+(`java.security.Signature("Ed25519")` есть только на новых API-уровнях).
 
 ## Проверка реализации
 
