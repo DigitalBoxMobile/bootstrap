@@ -699,3 +699,118 @@ def test_oversized_mirror_response_is_reported_as_oversized(signed, respx_mock, 
     rows = run(signed, [GIT_TARGET], environ=git_env, envs=("production",))
 
     assert rows_of(rows) == [("github", "production", "upload", "error: oversized")]
+
+
+def _p(env: str, action: str = "upload", problem: str | None = None) -> publish.Plan:
+    return publish.Plan(env, b"local", action, problem)
+
+
+@pytest.mark.parametrize(
+    ("target_type", "plans", "selected", "dry_run", "expected"),
+    [
+        pytest.param(
+            "git",
+            [_p("production"), _p("staging")],
+            ("production",),
+            False,
+            [
+                ("production", "error", "env_filter_conflict"),
+                ("staging", "error", "env_filter_conflict"),
+            ],
+            id="git_hidden_upload_is_env_filter_conflict",
+        ),
+        pytest.param(
+            "git",
+            [_p("production", "unchanged"), _p("staging")],
+            ("production",),
+            True,
+            [("production", "ok", None), ("staging", "error", "env_filter_conflict")],
+            id="git_env_filter_conflict_in_dry_run",
+        ),
+        pytest.param(
+            "git",
+            [_p("production"), _p("staging", problem="unreachable")],
+            ("production",),
+            True,
+            [("production", "planned", None), ("staging", "planned", "unreachable")],
+            id="git_hidden_unreadable_is_no_conflict_in_dry_run",
+        ),
+        pytest.param(
+            "git",
+            [_p("production"), _p("staging", "unchanged")],
+            ("production",),
+            False,
+            [("production", "upload", None)],
+            id="git_hides_unselected_unchanged",
+        ),
+        pytest.param(
+            "s3",
+            [
+                _p("production", "rollback_refused"),
+                _p("staging"),
+            ],
+            ("production", "staging"),
+            False,
+            [("production", "error", "rollback_refused"), ("staging", "skipped", None)],
+            id="rollback_refused_skips_other_uploads",
+        ),
+        pytest.param(
+            "git",
+            [_p("production"), _p("staging", "rollback_refused")],
+            ("production",),
+            True,
+            [("production", "skipped", None), ("staging", "error", "rollback_refused")],
+            id="git_hidden_rollback_refused_wins_over_conflict",
+        ),
+        pytest.param(
+            "s3",
+            [_p("production", problem="internal_error: ValueError"), _p("staging", "unchanged")],
+            ("production", "staging"),
+            True,
+            [("production", "error", "internal_error: ValueError"), ("staging", "ok", None)],
+            id="internal_error_fails_even_in_dry_run",
+        ),
+        pytest.param(
+            "s3",
+            [_p("production", problem="read_failed"), _p("staging")],
+            ("production", "staging"),
+            True,
+            [("production", "planned", "read_failed"), ("staging", "planned", None)],
+            id="dry_run_read_problem_is_planned_with_warning",
+        ),
+        pytest.param(
+            "s3",
+            [_p("production", problem="read_failed"), _p("staging")],
+            ("production", "staging"),
+            False,
+            [("production", "error", "read_failed"), ("staging", "skipped", None)],
+            id="read_problem_fails_without_dry_run",
+        ),
+        pytest.param(
+            "s3",
+            [_p("production", "unchanged"), _p("staging")],
+            ("production", "staging"),
+            False,
+            [("production", "ok", None), ("staging", "upload", None)],
+            id="clean_plans_upload",
+        ),
+    ],
+)
+def test_decide(target_type, plans, selected, dry_run, expected):
+    decisions = publish.decide(target_type, plans, selected, dry_run)
+
+    assert [(d.plan.env, d.outcome, d.detail) for d in decisions] == expected
+
+
+@pytest.mark.parametrize(
+    ("outcome", "detail", "result"),
+    [
+        ("error", "rollback_refused", "error: rollback_refused"),
+        ("planned", "read_failed", "warning: read_failed"),
+        ("planned", None, "planned"),
+        ("skipped", None, "skipped"),
+        ("ok", None, "ok"),
+    ],
+)
+def test_decision_result(outcome, detail, result):
+    assert publish.Decision(_p("production"), outcome, detail).result == result
