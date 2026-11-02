@@ -239,6 +239,35 @@ def test_unknown_key_with_unreadable_payload_is_overwritten(repo, s3, respx_mock
     assert rows_of(rows) == [("yandex", "production", "upload", "ok")]
 
 
+def test_newer_remote_signed_by_other_env_key_is_overwritten(repo, s3, respx_mock):
+    repo.write_manifest("staging", {**repo.read_manifest("staging"), "version": 5})
+    repo.sign_all()
+    s3.put_object(
+        Bucket="bucket", Key="v1/production.jws", Body=repo.dist_path("staging").read_bytes()
+    )
+    local = repo.dist_path("production").read_bytes()
+    respx_mock.get(f"{PUBLIC}production.jws").respond(200, content=local)
+
+    rows = run(repo, [S3_TARGET], s3=s3, environ=S3_ENV, envs=("production",))
+
+    assert rows_of(rows) == [("yandex", "production", "upload", "ok")]
+
+
+def test_alg_none_remote_with_known_kid_is_overwritten(signed, s3, respx_mock):
+    protected = b64url_encode(json.dumps({"alg": "none", "kid": "prod-2026a"}).encode())
+    envelope = {
+        "payload": b64url_encode(json.dumps({"version": 999}).encode()),
+        "signatures": [{"protected": protected, "signature": b64url_encode(bytes(64))}],
+    }
+    s3.put_object(Bucket="bucket", Key="v1/production.jws", Body=json.dumps(envelope).encode())
+    local = signed.dist_path("production").read_bytes()
+    respx_mock.get(f"{PUBLIC}production.jws").respond(200, content=local)
+
+    rows = run(signed, [S3_TARGET], s3=s3, environ=S3_ENV, envs=("production",))
+
+    assert rows_of(rows) == [("yandex", "production", "upload", "ok")]
+
+
 def test_newer_remote_with_bad_signature_is_overwritten(repo, s3, respx_mock):
     envelope = json.loads(newer_remote_older_local(repo))
     signature = envelope["signatures"][0]

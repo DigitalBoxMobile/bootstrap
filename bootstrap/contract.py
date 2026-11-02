@@ -68,6 +68,22 @@ def _header_kid(protected: str) -> str | None:
     return kid if isinstance(kid, str) else None
 
 
+def signature_kids(data: bytes) -> set[str]:
+    """Every string kid named by a signature header, whatever its alg; empty when malformed."""
+    envelope = _parse_envelope(data)
+    if envelope is None:
+        return set()
+    kids = set()
+    for sig in envelope[1]:
+        try:
+            header = json.loads(b64url_decode(sig["protected"]))
+        except (ValueError, RecursionError):
+            continue
+        if isinstance(header, dict) and isinstance(header.get("kid"), str):
+            kids.add(header["kid"])
+    return kids
+
+
 def _signature_valid(payload: str, sig: dict, jwk: dict) -> bool:
     flattened = {"payload": payload, "protected": sig["protected"], "signature": sig["signature"]}
     try:

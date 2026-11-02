@@ -138,21 +138,24 @@ def _build_plan(ctx: Context, target: Target, env: str, client) -> Plan:
             trusted_keys=keys.trusted_for_env(ctx.trusted, env),
             now=ctx.now,
         )
-        version = _guarded_version(remote, verdict)
+        version = _guarded_version(remote, verdict, ctx.trusted)
         if version is not None and version >= manifest_module.payload_version(local):
             return Plan(env, local, "rollback_refused")
     return Plan(env, local, "upload", etag=etag)
 
 
-def _guarded_version(remote: bytes, verdict: contract.Result) -> int | None:
+def _guarded_version(remote: bytes, verdict: contract.Result, known: dict[str, dict]) -> int | None:
     """Version a remote object protects from rollback; None when it may be overwritten.
 
-    A remote rejected only as `unknown_key` may be signed by a key rotated in after the
-    local clone was made: its signature cannot be checked, so its version is trusted as is.
+    A remote whose signatures all name kids absent from the local keys/ (any env) may be
+    signed by a key rotated in after the local clone was made: its signature cannot be
+    checked, so its version is trusted as is. A known kid means the object is checkable
+    and was rejected on its merits (other env's key, alg none), so it is overwritten.
     """
     if verdict.accepted:
         return verdict.manifest["version"]
-    if verdict.reason != "unknown_key":
+    kids = contract.signature_kids(remote)
+    if verdict.reason != "unknown_key" or not kids or kids & known.keys():
         return None
     try:
         return manifest_module.payload_version(remote)

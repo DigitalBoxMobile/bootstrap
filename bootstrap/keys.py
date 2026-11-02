@@ -30,7 +30,7 @@ def read_public(path: Path) -> dict:
     try:
         jwk = json.loads(path.read_text())
         x = b64url_decode(jwk["x"])
-    except (ValueError, KeyError, TypeError) as error:
+    except (OSError, ValueError, KeyError, TypeError) as error:
         raise CommandError("bad_key", f"{path.name}: not a readable public JWK") from error
     kid = path.name.removesuffix(PUBLIC_SUFFIX)
     problems = []
