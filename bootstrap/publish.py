@@ -15,19 +15,20 @@ from pathlib import Path
 import boto3
 from botocore.exceptions import BotoCoreError, ClientError
 
-from bootstrap import check, contract, keys, mirrors
+from bootstrap import check, contract, git, keys, mirrors
 from bootstrap import http as http_module
 from bootstrap import manifest as manifest_module
 from bootstrap.age import Age, AgeError
 from bootstrap.errors import CommandError, fail
+from bootstrap.keys import ENVS
 from bootstrap.manifest import ROOT
 from bootstrap.mirrors import Target
 
-ENVS = check.ENVS
 CONTENT_TYPE = "application/jose+json"
 CACHE_CONTROL = "public, max-age=300"
 GIT_VERIFY_ATTEMPTS = 10
 GIT_VERIFY_PAUSE_S = 30
+S3_CREDENTIAL_VARS = ("ACCESS_KEY_ID", "SECRET_ACCESS_KEY")
 
 
 @dataclass(frozen=True)
@@ -85,11 +86,8 @@ def _credentials(ctx: Context, target: Target):
     prefix = f"BOOTSTRAP_{target.credentials}_"
     if target.type == "git":
         return ctx.environ.get(f"{prefix}DEPLOY_KEY") or None
-    access, secret = (ctx.environ.get(f"{prefix}{name}") for name in _S3_VARS)
+    access, secret = (ctx.environ.get(f"{prefix}{name}") for name in S3_CREDENTIAL_VARS)
     return (access, secret) if access and secret else None
-
-
-_S3_VARS = ("ACCESS_KEY_ID", "SECRET_ACCESS_KEY")
 
 
 def _read_remote(
@@ -140,11 +138,29 @@ def _build_plan(ctx: Context, target: Target, env: str, client) -> Plan:
             trusted_keys=keys.trusted_for_env(ctx.trusted, env),
             now=ctx.now,
         )
-        if verdict.accepted and verdict.manifest["version"] >= manifest_module.payload_version(
-            local
-        ):
+        version = _guarded_version(remote, verdict, ctx.trusted)
+        if version is not None and version >= manifest_module.payload_version(local):
             return Plan(env, local, "rollback_refused")
     return Plan(env, local, "upload", etag=etag)
+
+
+def _guarded_version(remote: bytes, verdict: contract.Result, known: dict[str, dict]) -> int | None:
+    """Version a remote object protects from rollback; None when it may be overwritten.
+
+    A remote whose signatures all name kids absent from the local keys/ (any env) may be
+    signed by a key rotated in after the local clone was made: its signature cannot be
+    checked, so its version is trusted as is. A known kid means the object is checkable
+    and was rejected on its merits (other env's key, alg none), so it is overwritten.
+    """
+    if verdict.accepted:
+        return verdict.manifest["version"]
+    kids = contract.signature_kids(remote)
+    if verdict.reason != "unknown_key" or not kids or kids & known.keys():
+        return None
+    try:
+        return manifest_module.payload_version(remote)
+    except ValueError:
+        return None
 
 
 def _verified(target: Target, plan: Plan, ctx: Context, attempts: int) -> bool:
@@ -190,7 +206,7 @@ def _git_precheck(ctx: Context) -> str | None:
         return "dist_dirty"
     for env in ENVS:
         if (
-            check._git_blob(ctx.root, "HEAD", f"dist/{env}.jws")
+            git.blob(ctx.root, "HEAD", f"dist/{env}.jws")
             != (ctx.root / "dist" / f"{env}.jws").read_bytes()
         ):
             return "dist_not_committed"
@@ -237,6 +253,73 @@ def _write_git(ctx: Context, target: Target, key_path: str, plans: list[Plan]) -
     ]
 
 
+@dataclass(frozen=True)
+class Decision:
+    plan: Plan
+    outcome: str  # error | skipped | ok | planned | upload
+    detail: str | None = None  # error code, or the read problem a dry-run plan carries
+
+    @property
+    def result(self) -> str:
+        """The table result; an `upload` gets its result from the write instead."""
+        if self.outcome == "error":
+            return f"error: {self.detail}"
+        if self.outcome == "planned" and self.detail:
+            return f"warning: {self.detail}"
+        return self.outcome
+
+
+def _plan_error(plan: Plan, dry_run: bool) -> str | None:
+    if plan.action == "rollback_refused":
+        return "rollback_refused"
+    if plan.problem and plan.problem.startswith("internal_error"):
+        return plan.problem
+    # A dry run reports an unreadable remote as a warning instead of failing.
+    return None if dry_run else plan.problem
+
+
+def decide(
+    target_type: str, plans: list[Plan], selected_envs: tuple[str, ...], dry_run: bool
+) -> list[Decision]:
+    """Per-env decisions without I/O; any error stops every upload of the target."""
+    if target_type == "git":
+        # A git push publishes the whole HEAD: an unselected env is shown only when it changes.
+        plans = [p for p in plans if p.env in selected_envs or p.action != "unchanged"]
+    errors = {p.env: _plan_error(p, dry_run) for p in plans}
+    if any(errors.values()):
+        return [
+            Decision(p, "error", errors[p.env])
+            if errors[p.env]
+            else Decision(p, "ok" if p.action == "unchanged" else "skipped")
+            for p in plans
+        ]
+    if target_type == "git" and any(
+        p.env not in selected_envs and p.action == "upload" and not p.problem for p in plans
+    ):
+        return [
+            Decision(p, "error", "env_filter_conflict")
+            if p.action == "upload"
+            else Decision(p, "ok")
+            for p in plans
+        ]
+    return [
+        Decision(p, "ok")
+        if p.action == "unchanged"
+        else Decision(p, "planned", p.problem)
+        if dry_run
+        else Decision(p, "upload")
+        for p in plans
+    ]
+
+
+def _upload(ctx: Context, target: Target, credentials, client, uploads: list[Plan]) -> list[str]:
+    if not uploads:
+        return []
+    if target.type == "s3":
+        return [_write_s3(ctx, target, client, plan) for plan in uploads]
+    return _write_git(ctx, target, credentials, uploads)
+
+
 def _publish_target(ctx: Context, target: Target) -> list[Row]:
     credentials = _credentials(ctx, target)
     if credentials is None and not ctx.dry_run:
@@ -245,51 +328,20 @@ def _publish_target(ctx: Context, target: Target) -> list[Row]:
     # A git push publishes the whole HEAD, so every env is checked whatever --env says.
     envs = ENVS if target.type == "git" else ctx.envs
     plans = [_plan(ctx, target, env, client) for env in envs]
-    selected = set(ctx.envs)
 
-    def error_of(plan: Plan) -> str | None:
-        if plan.action == "rollback_refused":
-            return "rollback_refused"
-        if plan.problem and plan.problem.startswith("internal_error"):
-            return plan.problem
-        return None if ctx.dry_run else plan.problem
-
-    if target.type == "git":
-        hidden_change = any(
-            p.env not in selected and p.action == "upload" and not p.problem for p in plans
+    decisions = decide(target.type, plans, ctx.envs, ctx.dry_run)
+    uploads = [d.plan for d in decisions if d.outcome == "upload"]
+    written = dict(
+        zip(
+            (p.env for p in uploads),
+            _upload(ctx, target, credentials, client, uploads),
+            strict=True,
         )
-        if hidden_change and not any(error_of(p) for p in plans):
-            return [
-                Row(target.name, p.env, p.action, "error: env_filter_conflict")
-                if p.action == "upload"
-                else Row(target.name, p.env, p.action, "ok")
-                for p in plans
-                if p.env in selected or p.action != "unchanged"
-            ]
-        plans = [p for p in plans if p.env in selected or p.action != "unchanged"]
-
-    if any(error_of(plan) for plan in plans):
-        return [
-            Row(target.name, p.env, p.action, f"error: {error_of(p)}")
-            if error_of(p)
-            else Row(target.name, p.env, p.action, "ok" if p.action == "unchanged" else "skipped")
-            for p in plans
-        ]
-
-    uploads = [p for p in plans if p.action == "upload"]
-    if ctx.dry_run:
-        results = {p.env: f"warning: {p.problem}" if p.problem else "planned" for p in uploads}
-    elif target.type == "s3":
-        results = {p.env: _write_s3(ctx, target, client, p) for p in uploads}
-    elif uploads:
-        results = dict(
-            zip(
-                (p.env for p in uploads), _write_git(ctx, target, credentials, uploads), strict=True
-            )
-        )
-    else:
-        results = {}
-    return [Row(target.name, p.env, p.action, results.get(p.env, "ok")) for p in plans]
+    )
+    return [
+        Row(target.name, d.plan.env, d.plan.action, written.get(d.plan.env, d.result))
+        for d in decisions
+    ]
 
 
 def run(

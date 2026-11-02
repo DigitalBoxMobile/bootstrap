@@ -4,15 +4,10 @@ from datetime import datetime, timedelta
 import httpx
 import pytest
 
-from bootstrap import check_mirrors
+from bootstrap import check_mirrors, gen_testdata
 from tests.conftest import NOW, Repo
 
-PROD_URLS = [
-    "https://storage.yandexcloud.net/konsierge-bootstrap/v1/production.jws",
-    "https://konsierge-bootstrap.selstorage.ru/v1/production.jws",
-    "https://raw.githubusercontent.com/konsierge/bootstrap/master/dist/production.jws",
-    "https://bootstrap.ai-konsierge.ru/v1/production.jws",
-]
+PROD_URLS = gen_testdata.base_manifest("production")["mirrors"]
 
 
 @pytest.fixture
@@ -88,9 +83,9 @@ def test_newer_version_is_version_ahead(signed, respx_mock):
     newer = signed.dist_path("production").read_bytes()
     signed.dist_path("production").write_bytes(reference)
     serve_reference(signed, respx_mock)
-    respx_mock.get(PROD_URLS[3]).respond(200, content=newer)
+    respx_mock.get(PROD_URLS[-1]).respond(200, content=newer)
 
-    assert problems_by_url(run(signed))[PROD_URLS[3]] == ["version_ahead"]
+    assert problems_by_url(run(signed))[PROD_URLS[-1]] == ["version_ahead"]
 
 
 def test_same_version_other_bytes_is_content_mismatch(signed, respx_mock):
@@ -134,7 +129,7 @@ def test_main_exit_zero_and_text(signed, respx_mock, capsys):
     )
 
     assert status == 0
-    assert capsys.readouterr().out.count("ok ") == 4
+    assert capsys.readouterr().out.count("ok ") == len(PROD_URLS)
 
 
 def test_main_json_format_and_exit_one(signed, respx_mock, capsys):
@@ -154,7 +149,7 @@ def test_main_json_format_and_exit_one(signed, respx_mock, capsys):
         "ok": False,
         "problems": ["http_error"],
     }
-    assert [r["ok"] for r in rows] == [False, True, True, True]
+    assert [r["ok"] for r in rows] == [False] + [True] * (len(PROD_URLS) - 1)
 
 
 def test_env_filter_checks_only_selected_env(signed, respx_mock, capsys):
@@ -189,4 +184,4 @@ def test_crash_on_one_url_does_not_stop_others(signed, respx_mock):
     problems = problems_by_url(run(signed))
 
     assert problems[PROD_URLS[0]] == ["internal_error: RuntimeError"]
-    assert [problems[u] for u in PROD_URLS[1:]] == [[], [], []]
+    assert all(problems[u] == [] for u in PROD_URLS[1:])

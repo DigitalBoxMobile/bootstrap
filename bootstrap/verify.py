@@ -7,19 +7,14 @@ from datetime import UTC, datetime
 from pathlib import Path
 
 from bootstrap import contract, keys
-
-
-def parse_now(text: str) -> datetime:
-    moment = datetime.fromisoformat(text)
-    if moment.tzinfo is None:
-        raise ValueError("timestamp needs a UTC offset or Z")
-    return moment
+from bootstrap.errors import CommandError, fail
+from bootstrap.manifest import parse_now
 
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(prog="verify", description=__doc__)
     parser.add_argument("file", type=Path)
-    parser.add_argument("--env", required=True, choices=["production", "staging"])
+    parser.add_argument("--env", required=True, choices=keys.ENVS)
     parser.add_argument("--keys", type=Path, default=keys.DEFAULT_DIR)
     parser.add_argument("--min-version", type=int, default=0)
     parser.add_argument("--now", type=parse_now, default=None)
@@ -28,9 +23,10 @@ def main(argv: list[str] | None = None) -> int:
     try:
         data = args.file.read_bytes()
         trusted = keys.trusted_for_env(keys.load_dir(args.keys), args.env)
-    except (OSError, ValueError, KeyError) as error:
-        print(f"error: unreadable_input: {error}", file=sys.stderr)
-        return 1
+    except CommandError as error:
+        return fail(error)
+    except OSError as error:
+        return fail(CommandError("unreadable_input", str(error)))
 
     result = contract.evaluate(
         data,

@@ -2,15 +2,14 @@
 
 import json
 from dataclasses import dataclass, field
-from datetime import UTC, datetime
+from datetime import datetime
 
 from jwcrypto.jwk import JWK
 from jwcrypto.jws import JWS
 
 from bootstrap import manifest as manifest_module
 from bootstrap.jws import b64url_decode
-
-TIMESTAMP_FORMAT = manifest_module.TIMESTAMP_FORMAT
+from bootstrap.manifest import parse_timestamp
 
 
 @dataclass(frozen=True)
@@ -36,10 +35,6 @@ class Result:
 
 def _reject(reason: str) -> Result:
     return Result(accepted=False, reason=reason)
-
-
-def parse_timestamp(text: str) -> datetime:
-    return datetime.strptime(text, TIMESTAMP_FORMAT).replace(tzinfo=UTC)
 
 
 def _parse_envelope(data: bytes) -> tuple[str, list[dict]] | None:
@@ -71,6 +66,22 @@ def _header_kid(protected: str) -> str | None:
         return None
     kid = header.get("kid")
     return kid if isinstance(kid, str) else None
+
+
+def signature_kids(data: bytes) -> set[str]:
+    """Every string kid named by a signature header, whatever its alg; empty when malformed."""
+    envelope = _parse_envelope(data)
+    if envelope is None:
+        return set()
+    kids = set()
+    for sig in envelope[1]:
+        try:
+            header = json.loads(b64url_decode(sig["protected"]))
+        except (ValueError, RecursionError):
+            continue
+        if isinstance(header, dict) and isinstance(header.get("kid"), str):
+            kids.add(header["kid"])
+    return kids
 
 
 def _signature_valid(payload: str, sig: dict, jwk: dict) -> bool:

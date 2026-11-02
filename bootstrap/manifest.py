@@ -1,7 +1,7 @@
-"""Manifest loading, canonical serialization and schema validation."""
+"""Manifest loading, timestamps, canonical serialization and schema validation."""
 
 import json
-from datetime import datetime
+from datetime import UTC, datetime
 from functools import cache
 from pathlib import Path
 
@@ -27,6 +27,19 @@ def validator() -> Draft202012Validator:
     return StrictValidator(json.loads(SCHEMA_PATH.read_text()))
 
 
+def parse_timestamp(text: str) -> datetime:
+    """A manifest timestamp (`TIMESTAMP_FORMAT`, UTC); ValueError when it is not one."""
+    return datetime.strptime(text, TIMESTAMP_FORMAT).replace(tzinfo=UTC)
+
+
+def parse_now(text: str) -> datetime:
+    """`--now` argument: any ISO 8601 moment with an explicit offset."""
+    moment = datetime.fromisoformat(text)
+    if moment.tzinfo is None:
+        raise ValueError("timestamp needs a UTC offset or Z")
+    return moment
+
+
 def load(path: Path) -> dict:
     return json.loads(Path(path).read_text())
 
@@ -40,9 +53,9 @@ def payload_version(dist_bytes: bytes) -> int:
     """`version` of the manifest inside a .jws file; ValueError when unreadable."""
     try:
         version = json.loads(b64url_decode(json.loads(dist_bytes)["payload"]))["version"]
-    except (KeyError, TypeError) as error:
+    except (KeyError, TypeError, RecursionError) as error:
         raise ValueError("no manifest version in dist file") from error
-    if not isinstance(version, int):
+    if not isinstance(version, int) or isinstance(version, bool):
         raise ValueError("no manifest version in dist file")
     return version
 
@@ -54,7 +67,7 @@ def _calendar_errors(manifest: object) -> list[str]:
         if not isinstance(value, str):
             continue
         try:
-            datetime.strptime(value, TIMESTAMP_FORMAT)
+            parse_timestamp(value)
         except ValueError:
             errors.append(f"{field}: {value!r} is not a real UTC calendar date")
     return errors
