@@ -18,3 +18,9 @@ def test_payload_version_reads_integer():
 def test_payload_version_rejects_non_integer(version):
     with pytest.raises(ValueError):
         manifest.payload_version(dist_with_version(version))
+
+
+def test_payload_version_rejects_deeply_nested_payload():
+    payload = jws.b64url_encode(b"[" * 100_000 + b"]" * 100_000)
+    with pytest.raises(ValueError):
+        manifest.payload_version(json.dumps({"payload": payload}).encode())

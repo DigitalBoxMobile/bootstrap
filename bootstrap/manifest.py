@@ -53,7 +53,7 @@ def payload_version(dist_bytes: bytes) -> int:
     """`version` of the manifest inside a .jws file; ValueError when unreadable."""
     try:
         version = json.loads(b64url_decode(json.loads(dist_bytes)["payload"]))["version"]
-    except (KeyError, TypeError) as error:
+    except (KeyError, TypeError, RecursionError) as error:
         raise ValueError("no manifest version in dist file") from error
     if not isinstance(version, int) or isinstance(version, bool):
         raise ValueError("no manifest version in dist file")
