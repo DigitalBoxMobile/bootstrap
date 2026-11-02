@@ -2,6 +2,7 @@
 
 - Статус: Принято
 - Дата: 2026-11-02
+- Обновлено 2026-11-02: GitHub-зеркало — `DigitalBoxMobile/bootstrap` вместо `konsierge/bootstrap`.
 
 ## Контекст
 
@@ -26,10 +27,10 @@
 - **Целостность на клиенте**: хотя бы одна верная подпись доверенного ключа, `env` совпадает со сборкой, `version` не ниже
   сохранённой в защищённом хранилище (защита от отката и «замороженного» зеркала), из всех валидных ответов берётся максимальная
   версия. Срок `expires_at` мягкий: просроченный манифест используется, жёсткий срок превратил бы нашу забывчивость в отказ всех клиентов.
-- **Зеркала** первой итерации: Yandex Object Storage, Selectel Object Storage, GitHub raw (`konsierge/bootstrap`),
+- **Зеркала** первой итерации: Yandex Object Storage, Selectel Object Storage, GitHub raw (`DigitalBoxMobile/bootstrap`, ветка `main`),
   `bootstrap.ai-konsierge.ru` как CNAME на бакет. Содержимое подписано, поэтому зеркалу не нужно доверие. Сборка содержит
   последний подписанный манифест как встроенный.
-- **Источник правды** — этот репозиторий (GitLab `digitalbox/backend/instruments/bootstrap`, зеркало GitHub `konsierge/bootstrap`);
+- **Источник правды** — этот репозиторий (GitLab `digitalbox/backend/instruments/bootstrap`, зеркало GitHub `DigitalBoxMobile/bootstrap`);
   публикация байт в байт, работает с рабочей машины без GitLab и без `konsierge.com`; внешний монитор сверяет зеркала с `dist/`.
 - **Certificate pinning** в сборках не вводится (подтверждено мобильной командой): системное доверие и Certificate Transparency
   достаточны, пиннинг заблокировал бы резервный домен и смену CA. Если понадобится — только через манифест (`tls.spki_pins`, fail-open).

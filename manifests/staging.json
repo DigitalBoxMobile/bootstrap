@@ -1,9 +1,9 @@
 {
   "schema": 1,
   "env": "staging",
-  "version": 1,
-  "issued_at": "2026-11-02T13:56:07Z",
-  "expires_at": "2027-05-01T13:56:07Z",
+  "version": 2,
+  "issued_at": "2026-11-02T14:14:21Z",
+  "expires_at": "2027-05-01T14:14:21Z",
   "base_domains": [
     "konsierge.com",
     "ai-konsierge.ru"
@@ -12,7 +12,7 @@
   "mirrors": [
     "https://storage.yandexcloud.net/konsierge-bootstrap/v1/staging.jws",
     "https://konsierge-bootstrap.selstorage.ru/v1/staging.jws",
-    "https://raw.githubusercontent.com/konsierge/bootstrap/master/dist/staging.jws",
+    "https://raw.githubusercontent.com/DigitalBoxMobile/bootstrap/main/dist/staging.jws",
     "https://bootstrap.ai-konsierge.ru/v1/staging.jws"
   ],
   "policy": {

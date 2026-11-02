@@ -106,7 +106,7 @@ bin/publish --secrets ~/.config/konsierge/bootstrap/publish.env.age
 | `BOOTSTRAP_YANDEX_SECRET_ACCESS_KEY` | Yandex Object Storage | секрет того же ключа | то же |
 | `BOOTSTRAP_SELECTEL_ACCESS_KEY_ID` | Selectel Object Storage | статический ключ доступа S3 сервисного аккаунта с записью в один бакет | то же |
 | `BOOTSTRAP_SELECTEL_SECRET_ACCESS_KEY` | Selectel Object Storage | секрет того же ключа | то же |
-| `BOOTSTRAP_GITHUB_DEPLOY_KEY` | git-зеркало `konsierge/bootstrap` | приватный SSH deploy-ключ с правом записи | CI: переменная типа **File** (protected); локально: путь к файлу в `age`-dotenv; копия в Passbolt |
+| `BOOTSTRAP_GITHUB_DEPLOY_KEY` | git-зеркало `DigitalBoxMobile/bootstrap` | приватный SSH deploy-ключ с правом записи | CI: переменная типа **File** (protected); локально: путь к файлу в `age`-dotenv; копия в Passbolt |
 
 Push в git-зеркало идёт по SSH с проверкой ключа хоста: `known_hosts` в корне репозитория (поле `known_hosts` цели в `mirrors.yml`)
 содержит опубликованные ключи `github.com` (ed25519, ecdsa, rsa). Перед push `publish` копирует deploy-ключ во временный файл с правами
@@ -127,7 +127,7 @@ curl -fsS https://api.github.com/meta | python3 -c 'import json,sys; [print("git
 
 1. Бакеты `konsierge-bootstrap` в Yandex и Selectel с публичным чтением только префикса `v1/`.
 2. Сервисные аккаунты по одному на провайдера с записью в этот бакет; статические ключи — в секреты.
-3. GitHub-репозиторий `konsierge/bootstrap` и deploy-ключ с правом записи; приватная часть — в секреты. Актуальный `known_hosts`
+3. GitHub-репозиторий `DigitalBoxMobile/bootstrap` (публичный, ветка `main`) и deploy-ключ с правом записи; приватная часть — в секреты. Актуальный `known_hosts`
    с ключами `github.com` лежит в репозитории (как обновить — в разделе «Секреты»).
 4. CNAME `bootstrap.ai-konsierge.ru` на один из бакетов, сертификат выпускает провайдер бакета.
 5. Адреса Selectel в `mirrors.yml` (endpoint `s3.storage.selcloud.ru`, регион `ru-1`, публичный домен) подтвердить при создании
