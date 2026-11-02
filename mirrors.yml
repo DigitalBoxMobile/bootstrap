@@ -1,0 +1,23 @@
+targets:
+  - name: yandex
+    type: s3
+    endpoint: https://storage.yandexcloud.net
+    region: ru-central1
+    bucket: konsierge-bootstrap
+    prefix: v1/
+    public_url: https://storage.yandexcloud.net/konsierge-bootstrap/v1/
+    credentials: YANDEX        # BOOTSTRAP_YANDEX_ACCESS_KEY_ID, BOOTSTRAP_YANDEX_SECRET_ACCESS_KEY
+  - name: selectel
+    type: s3
+    endpoint: https://s3.storage.selcloud.ru
+    region: ru-1
+    bucket: konsierge-bootstrap
+    prefix: v1/
+    public_url: https://konsierge-bootstrap.selstorage.ru/v1/
+    credentials: SELECTEL      # BOOTSTRAP_SELECTEL_ACCESS_KEY_ID, BOOTSTRAP_SELECTEL_SECRET_ACCESS_KEY
+  - name: github
+    type: git
+    push_url: git@github.com:konsierge/bootstrap.git
+    branch: master
+    public_url: https://raw.githubusercontent.com/konsierge/bootstrap/master/dist/
+    credentials: GITHUB        # BOOTSTRAP_GITHUB_DEPLOY_KEY: path to a private SSH deploy key with write access
