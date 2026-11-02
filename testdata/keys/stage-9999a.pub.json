@@ -1,7 +1,7 @@
 {
   "kty": "OKP",
   "crv": "Ed25519",
-  "x": "PnHBwFxQx4wR6NNH8Zr63s82-6h-zkWpZk8PesEhNcg",
+  "x": "6FmypnyPj_60GP-VTo-hLB9OkJ941YEoh0J2qG2GJXU",
   "kid": "stage-9999a",
   "use": "sig",
   "alg": "EdDSA"

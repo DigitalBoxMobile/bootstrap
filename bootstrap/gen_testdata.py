@@ -8,7 +8,7 @@ from pathlib import Path
 
 from jwcrypto.jwk import JWK
 
-from bootstrap import jws, keys, manifest
+from bootstrap import jws, keys, manifest, mirrors
 from bootstrap.manifest import ROOT
 
 NOW = "2026-11-02T12:00:00Z"
@@ -21,12 +21,7 @@ MAX_SAFE_INTEGER = 2**53 - 1
 
 
 def base_manifest(env: str, version: int = 1) -> dict:
-    mirror_paths = [
-        "https://storage.yandexcloud.net/konsierge-bootstrap/v1/{env}.jws",
-        "https://konsierge-bootstrap.selstorage.ru/v1/{env}.jws",
-        "https://raw.githubusercontent.com/konsierge/bootstrap/master/dist/{env}.jws",
-        "https://bootstrap.ai-konsierge.ru/v1/{env}.jws",
-    ]
+    """A valid manifest whose mirrors are the public URLs of `mirrors.yml`."""
     return {
         "schema": 1,
         "env": env,
@@ -35,7 +30,7 @@ def base_manifest(env: str, version: int = 1) -> dict:
         "expires_at": EXPIRES_AT,
         "base_domains": ["konsierge.com", "ai-konsierge.ru"],
         "health_path": "/healthz",
-        "mirrors": [path.format(env=env) for path in mirror_paths],
+        "mirrors": [target.public_file_url(env) for target in mirrors.load()],
         "policy": {
             "connect_timeout_ms": 3000,
             "probe_interval_s": 600,
