@@ -2,23 +2,21 @@
 
 import argparse
 import json
-import subprocess
 import sys
 from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
 
-from bootstrap import contract, keys
+from bootstrap import contract, git, keys
 from bootstrap import manifest as manifest_module
 from bootstrap.errors import CommandError, fail
 from bootstrap.jws import b64url_decode
+from bootstrap.keys import ENVS
 from bootstrap.manifest import ROOT
 from bootstrap.sign import MAX_DIST_BYTES
 
-ENVS = tuple(keys.PREFIX_ENV.values())
 IGNORED_KEY_FILES = {".gitkeep"}
-PRIVATE_MEMBERS = {"d", "p", "q", "dp", "dq", "qi", "oth", "k"}  # RFC 7518 private JWK members
 
 
 @dataclass(frozen=True)
@@ -27,7 +25,7 @@ class Result:
     error: CommandError | None = None
 
 
-def _step(results: list[Result], name: str, check: Callable[[], object]) -> object | None:
+def _step[T](results: list[Result], name: str, check: Callable[[], T]) -> T | None:
     """Run one check, record its outcome and return its value (None on failure)."""
     try:
         value = check()
@@ -35,28 +33,7 @@ def _step(results: list[Result], name: str, check: Callable[[], object]) -> obje
         results.append(Result(name, error))
         return None
     results.append(Result(name))
-    return value if value is not None else True
-
-
-def _read_key(path: Path) -> dict:
-    try:
-        jwk = json.loads(path.read_text())
-        x = b64url_decode(jwk["x"])
-    except (ValueError, KeyError, TypeError) as error:
-        raise CommandError("bad_key", f"{path.name}: not a readable public JWK") from error
-    kid = path.name.removesuffix(".pub.json")
-    problems = []
-    if jwk.get("kty") != "OKP" or jwk.get("crv") != "Ed25519" or len(x) != 32:
-        problems.append("not an Ed25519 OKP key")
-    if jwk.get("use") != "sig" or jwk.get("alg") != "EdDSA":
-        problems.append('use must be "sig" and alg "EdDSA"')
-    if private := sorted(PRIVATE_MEMBERS & jwk.keys()):
-        problems.append(f"contains private members {', '.join(private)}")
-    if jwk.get("kid") != kid or not keys.KID_RE.fullmatch(kid):
-        problems.append(f"kid {jwk.get('kid')!r} does not match the file name")
-    if problems:
-        raise CommandError("bad_key", f"{path.name}: {', '.join(problems)}")
-    return jwk
+    return value
 
 
 def _check_keys(root: Path, results: list[Result]) -> dict[str, dict]:
@@ -65,7 +42,7 @@ def _check_keys(root: Path, results: list[Result]) -> dict[str, dict]:
     for path in sorted(directory.iterdir()) if directory.is_dir() else []:
         if path.name in IGNORED_KEY_FILES:
             continue
-        if not path.name.endswith(".pub.json"):
+        if not path.name.endswith(keys.PUBLIC_SUFFIX):
             results.append(
                 Result(
                     f"keys/{path.name}",
@@ -73,7 +50,7 @@ def _check_keys(root: Path, results: list[Result]) -> dict[str, dict]:
                 )
             )
             continue
-        jwk = _step(results, f"keys/{path.name}", lambda path=path: _read_key(path))
+        jwk = _step(results, f"keys/{path.name}", lambda path=path: keys.read_public(path))
         if jwk:
             trusted[jwk["kid"]] = jwk
     return trusted
@@ -92,8 +69,8 @@ def _check_manifest(root: Path, env: str) -> dict:
         raise CommandError("invalid_manifest", f"{path.name}: {'; '.join(errors)}")
     if manifest["env"] != env:
         raise CommandError("env_mismatch", f"{path.name} has env {manifest['env']!r}")
-    issued = contract.parse_timestamp(manifest["issued_at"])
-    if contract.parse_timestamp(manifest["expires_at"]) <= issued:
+    issued = manifest_module.parse_timestamp(manifest["issued_at"])
+    if manifest_module.parse_timestamp(manifest["expires_at"]) <= issued:
         raise CommandError("expiry_order", f"{path.name}: expires_at is not after issued_at")
     return manifest
 
@@ -119,13 +96,6 @@ def _check_dist(
         )
 
 
-def _git_blob(root: Path, ref: str, path: str) -> bytes | None:
-    result = subprocess.run(
-        ["git", "-C", str(root), "show", f"{ref}:{path}"], capture_output=True, check=False
-    )
-    return result.stdout if result.returncode == 0 else None
-
-
 def _version(data: bytes, label: str) -> int:
     try:
         return manifest_module.payload_version(data)
@@ -135,7 +105,7 @@ def _version(data: bytes, label: str) -> int:
 
 def _check_base(root: Path, env: str, ref: str) -> None:
     path = f"dist/{env}.jws"
-    old = _git_blob(root, ref, path)
+    old = git.blob(root, ref, path)
     new = (root / path).read_bytes() if (root / path).is_file() else None
     if old is None:
         if new is not None:
@@ -155,14 +125,8 @@ def _check_base(root: Path, env: str, ref: str) -> None:
 def run(*, root: Path, base: str | None = None, now: datetime | None = None) -> list[Result]:
     """Run every check; raises CommandError only when `base` is not a commit."""
     now = now or datetime.now(UTC)
-    if base is not None:
-        probe = subprocess.run(
-            ["git", "-C", str(root), "rev-parse", "--verify", "--quiet", f"{base}^{{commit}}"],
-            capture_output=True,
-            check=False,
-        )
-        if probe.returncode != 0:
-            raise CommandError("bad_base", f"{base!r} is not a commit")
+    if base is not None and not git.is_commit(root, base):
+        raise CommandError("bad_base", f"{base!r} is not a commit")
 
     results: list[Result] = []
     trusted = _check_keys(root, results)
@@ -173,9 +137,7 @@ def run(*, root: Path, base: str | None = None, now: datetime | None = None) -> 
         _step(
             results,
             f"dist/{env}.jws",
-            lambda env=env, manifest=manifest: _check_dist(
-                root, env, manifest or None, trusted, now
-            ),
+            lambda env=env, manifest=manifest: _check_dist(root, env, manifest, trusted, now),
         )
         if base is not None:
             _step(

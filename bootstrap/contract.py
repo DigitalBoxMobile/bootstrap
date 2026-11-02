@@ -2,15 +2,14 @@
 
 import json
 from dataclasses import dataclass, field
-from datetime import UTC, datetime
+from datetime import datetime
 
 from jwcrypto.jwk import JWK
 from jwcrypto.jws import JWS
 
 from bootstrap import manifest as manifest_module
 from bootstrap.jws import b64url_decode
-
-TIMESTAMP_FORMAT = manifest_module.TIMESTAMP_FORMAT
+from bootstrap.manifest import parse_timestamp
 
 
 @dataclass(frozen=True)
@@ -36,10 +35,6 @@ class Result:
 
 def _reject(reason: str) -> Result:
     return Result(accepted=False, reason=reason)
-
-
-def parse_timestamp(text: str) -> datetime:
-    return datetime.strptime(text, TIMESTAMP_FORMAT).replace(tzinfo=UTC)
 
 
 def _parse_envelope(data: bytes) -> tuple[str, list[dict]] | None:

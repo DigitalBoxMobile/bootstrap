@@ -15,19 +15,20 @@ from pathlib import Path
 import boto3
 from botocore.exceptions import BotoCoreError, ClientError
 
-from bootstrap import check, contract, keys, mirrors
+from bootstrap import check, contract, git, keys, mirrors
 from bootstrap import http as http_module
 from bootstrap import manifest as manifest_module
 from bootstrap.age import Age, AgeError
 from bootstrap.errors import CommandError, fail
+from bootstrap.keys import ENVS
 from bootstrap.manifest import ROOT
 from bootstrap.mirrors import Target
 
-ENVS = check.ENVS
 CONTENT_TYPE = "application/jose+json"
 CACHE_CONTROL = "public, max-age=300"
 GIT_VERIFY_ATTEMPTS = 10
 GIT_VERIFY_PAUSE_S = 30
+S3_CREDENTIAL_VARS = ("ACCESS_KEY_ID", "SECRET_ACCESS_KEY")
 
 
 @dataclass(frozen=True)
@@ -85,11 +86,8 @@ def _credentials(ctx: Context, target: Target):
     prefix = f"BOOTSTRAP_{target.credentials}_"
     if target.type == "git":
         return ctx.environ.get(f"{prefix}DEPLOY_KEY") or None
-    access, secret = (ctx.environ.get(f"{prefix}{name}") for name in _S3_VARS)
+    access, secret = (ctx.environ.get(f"{prefix}{name}") for name in S3_CREDENTIAL_VARS)
     return (access, secret) if access and secret else None
-
-
-_S3_VARS = ("ACCESS_KEY_ID", "SECRET_ACCESS_KEY")
 
 
 def _read_remote(
@@ -190,7 +188,7 @@ def _git_precheck(ctx: Context) -> str | None:
         return "dist_dirty"
     for env in ENVS:
         if (
-            check._git_blob(ctx.root, "HEAD", f"dist/{env}.jws")
+            git.blob(ctx.root, "HEAD", f"dist/{env}.jws")
             != (ctx.root / "dist" / f"{env}.jws").read_bytes()
         ):
             return "dist_not_committed"

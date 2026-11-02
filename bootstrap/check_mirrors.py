@@ -11,10 +11,9 @@ from bootstrap import contract, keys
 from bootstrap import http as http_module
 from bootstrap import manifest as manifest_module
 from bootstrap.errors import CommandError, fail
-from bootstrap.manifest import ROOT
-from bootstrap.verify import parse_now
+from bootstrap.keys import ENVS
+from bootstrap.manifest import ROOT, parse_now
 
-ENVS = tuple(keys.PREFIX_ENV.values())
 DEFAULT_WARN_DAYS = 60
 
 
@@ -30,13 +29,6 @@ class Row:
 
     def as_dict(self) -> dict:
         return {"env": self.env, "url": self.url, "ok": self.ok, "problems": self.problems}
-
-
-def _trusted(root: Path, env: str) -> dict[str, dict]:
-    try:
-        return keys.trusted_for_env(keys.load_dir(root / "keys"), env)
-    except (OSError, ValueError, KeyError) as error:
-        raise CommandError("bad_key", f"keys/: {error}") from error
 
 
 def _reference(root: Path, env: str, trusted: dict[str, dict], now: datetime):
@@ -103,10 +95,11 @@ def run(
 ) -> list[Row]:
     """Raises CommandError when a reference file is missing or does not verify."""
     rows = []
+    all_keys = keys.load_dir(root / "keys")
     for env in envs:
-        trusted = _trusted(root, env)
+        trusted = keys.trusted_for_env(all_keys, env)
         reference, manifest = _reference(root, env, trusted, now)
-        remaining = contract.parse_timestamp(manifest["expires_at"]) - now
+        remaining = manifest_module.parse_timestamp(manifest["expires_at"]) - now
         expiring = remaining <= timedelta(days=warn_days)
         rows.extend(
             _safe_check_url(

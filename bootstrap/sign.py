@@ -18,20 +18,16 @@ VALIDITY = timedelta(days=180)
 MAX_DIST_BYTES = 3584
 
 
-def _check_kids(env: str, kids: list[str], keys_dir: Path) -> dict[str, dict]:
+def _check_kids(env: str, kids: list[str], public: dict[str, dict]) -> None:
     if len(set(kids)) != len(kids):
         raise CommandError("duplicate_kid", "each --kid may be given once")
-    public = {}
     for kid in kids:
         if not keys.KID_RE.fullmatch(kid):
             raise CommandError("invalid_kid", f"{kid!r} does not match {keys.KID_RE.pattern}")
         if keys.env_of_kid(kid) != env:
             raise CommandError("kid_env_mismatch", f"{kid} does not belong to {env}")
-        path = keys_dir / f"{kid}.pub.json"
-        if not path.is_file():
-            raise CommandError("unknown_key", f"{path} does not exist")
-        public[kid] = json.loads(path.read_text())
-    return public
+        if kid not in public:
+            raise CommandError("unknown_key", f"keys/{kid}{keys.PUBLIC_SUFFIX} does not exist")
 
 
 def _load_private(kid: str, public: dict, key_dir: Path, age: Age) -> JWK:
@@ -53,8 +49,8 @@ def sign(env: str, kids: list[str], *, root: Path, key_dir: Path, age: Age, now:
     """Sign `env`; `dist/<env>.jws` changes only after every step succeeded."""
     manifest_path = root / "manifests" / f"{env}.json"
     manifest = manifest_module.load(manifest_path)
-    manifest["issued_at"] = now.strftime(contract.TIMESTAMP_FORMAT)
-    manifest["expires_at"] = (now + VALIDITY).strftime(contract.TIMESTAMP_FORMAT)
+    manifest["issued_at"] = now.strftime(manifest_module.TIMESTAMP_FORMAT)
+    manifest["expires_at"] = (now + VALIDITY).strftime(manifest_module.TIMESTAMP_FORMAT)
     manifest_path.write_text(json.dumps(manifest, indent=2, ensure_ascii=False) + "\n")
 
     errors = manifest_module.schema_errors(manifest)
@@ -62,7 +58,8 @@ def sign(env: str, kids: list[str], *, root: Path, key_dir: Path, age: Age, now:
         raise CommandError("invalid_manifest", "; ".join(errors))
     if manifest["env"] != env:
         raise CommandError("env_mismatch", f"{manifest_path} has env {manifest['env']!r}")
-    public = _check_kids(env, kids, root / "keys")
+    public = keys.load_dir(root / "keys")
+    _check_kids(env, kids, public)
 
     dist_path = root / "dist" / f"{env}.jws"
     if dist_path.exists():
@@ -83,7 +80,7 @@ def sign(env: str, kids: list[str], *, root: Path, key_dir: Path, age: Age, now:
     result = contract.evaluate(
         data,
         env=env,
-        trusted_keys=keys.trusted_for_env(keys.load_dir(root / "keys"), env),
+        trusted_keys=keys.trusted_for_env(public, env),
         now=now,
     )
     if not result.accepted:
@@ -95,7 +92,7 @@ def sign(env: str, kids: list[str], *, root: Path, key_dir: Path, age: Age, now:
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(prog="sign", description=__doc__)
-    parser.add_argument("env", choices=["production", "staging"])
+    parser.add_argument("env", choices=keys.ENVS)
     parser.add_argument("--kid", action="append", required=True, dest="kids")
     args = parser.parse_args(argv)
 
