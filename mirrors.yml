@@ -17,8 +17,8 @@ targets:
     credentials: SELECTEL      # BOOTSTRAP_SELECTEL_ACCESS_KEY_ID, BOOTSTRAP_SELECTEL_SECRET_ACCESS_KEY
   - name: github
     type: git
-    push_url: git@github.com:konsierge/bootstrap.git
-    branch: master
+    push_url: git@github.com:DigitalBoxMobile/bootstrap.git
+    branch: main
     known_hosts: known_hosts   # SSH host keys of github.com, see README
-    public_url: https://raw.githubusercontent.com/konsierge/bootstrap/master/dist/
+    public_url: https://raw.githubusercontent.com/DigitalBoxMobile/bootstrap/main/dist/
     credentials: GITHUB        # BOOTSTRAP_GITHUB_DEPLOY_KEY: path to a private SSH deploy key with write access

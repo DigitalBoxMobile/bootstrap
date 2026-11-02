@@ -3,7 +3,7 @@
 - **Health-роутер в Traefik для проб клиента.** Сейчас клиент считает домен живым по любому HTTP-ответу Traefik
   (`docs/client-contract.md`, «Выбор домена»). Добавить в репозитории `traefik` роутер `Path(/healthz)` → `ping@internal`
   (`--ping=true`) для всех хостов базовых доменов, после чего клиент сможет требовать 200.
-- **Создать зеркала и секреты публикации**: бакеты Yandex и Selectel, сервисные аккаунты, GitHub `konsierge/bootstrap`
+- **Создать зеркала и секреты публикации**: бакеты Yandex и Selectel, сервисные аккаунты, GitHub `DigitalBoxMobile/bootstrap`
   с deploy-ключом, CNAME `bootstrap.ai-konsierge.ru`, переменные GitLab CI — по README. Подтвердить endpoint и публичный
   домен Selectel.
 - **Прогнать GitLab CI Lint** для `.gitlab-ci.yml`, когда `gitlab.konsierge.com` доступен (при реализации не резолвился).
