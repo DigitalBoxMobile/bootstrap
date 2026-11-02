@@ -138,11 +138,26 @@ def _build_plan(ctx: Context, target: Target, env: str, client) -> Plan:
             trusted_keys=keys.trusted_for_env(ctx.trusted, env),
             now=ctx.now,
         )
-        if verdict.accepted and verdict.manifest["version"] >= manifest_module.payload_version(
-            local
-        ):
+        version = _guarded_version(remote, verdict)
+        if version is not None and version >= manifest_module.payload_version(local):
             return Plan(env, local, "rollback_refused")
     return Plan(env, local, "upload", etag=etag)
+
+
+def _guarded_version(remote: bytes, verdict: contract.Result) -> int | None:
+    """Version a remote object protects from rollback; None when it may be overwritten.
+
+    A remote rejected only as `unknown_key` may be signed by a key rotated in after the
+    local clone was made: its signature cannot be checked, so its version is trusted as is.
+    """
+    if verdict.accepted:
+        return verdict.manifest["version"]
+    if verdict.reason != "unknown_key":
+        return None
+    try:
+        return manifest_module.payload_version(remote)
+    except ValueError:
+        return None
 
 
 def _verified(target: Target, plan: Plan, ctx: Context, attempts: int) -> bool:

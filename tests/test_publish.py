@@ -1,3 +1,4 @@
+import json
 import shlex
 import subprocess
 from pathlib import Path
@@ -11,6 +12,7 @@ from moto import mock_aws
 
 from bootstrap import check, publish
 from bootstrap.errors import CommandError
+from bootstrap.jws import b64url_encode
 from bootstrap.mirrors import Target
 from tests.conftest import Repo
 
@@ -177,6 +179,94 @@ def test_rollback_refused_skips_whole_target(repo, s3):
 
     assert objects(s3) == ["v1/production.jws"]
     assert [r.result for r in rows] == ["error: rollback_refused", "skipped"]
+
+
+def stale_keys_remote(repo: Repo, *, remote_version: int, local_version: int) -> bytes:
+    """Remote signed by prod-2026b, which the local keys/ no longer has; returns its bytes."""
+    repo.write_manifest(
+        "production", {**repo.read_manifest("production"), "version": remote_version}
+    )
+    repo.sign("production", ["prod-2026b"])
+    remote = repo.dist_path("production").read_bytes()
+    repo.dist_path("production").unlink()
+    (repo.root / "keys" / "prod-2026b.pub.json").unlink()
+    repo.write_manifest(
+        "production", {**repo.read_manifest("production"), "version": local_version}
+    )
+    repo.sign("production", ["prod-2026a"])
+    repo.sign("staging", ["stage-2026a"])
+    repo.commit()
+    return remote
+
+
+@pytest.mark.parametrize("remote_version", [2, 1])
+def test_rollback_refused_when_remote_key_is_unknown_and_not_older(repo, s3, remote_version):
+    remote = stale_keys_remote(repo, remote_version=remote_version, local_version=1)
+    s3.put_object(Bucket="bucket", Key="v1/production.jws", Body=remote)
+
+    rows = run(repo, [S3_TARGET], s3=s3, environ=S3_ENV, envs=("production",))
+
+    assert rows_of(rows) == [
+        ("yandex", "production", "rollback_refused", "error: rollback_refused")
+    ]
+    assert s3.get_object(Bucket="bucket", Key="v1/production.jws")["Body"].read() == remote
+
+
+def test_older_remote_with_unknown_key_is_overwritten(repo, s3, respx_mock):
+    s3.put_object(
+        Bucket="bucket",
+        Key="v1/production.jws",
+        Body=stale_keys_remote(repo, remote_version=1, local_version=2),
+    )
+    local = repo.dist_path("production").read_bytes()
+    respx_mock.get(f"{PUBLIC}production.jws").respond(200, content=local)
+
+    rows = run(repo, [S3_TARGET], s3=s3, environ=S3_ENV, envs=("production",))
+
+    assert rows_of(rows) == [("yandex", "production", "upload", "ok")]
+    assert s3.get_object(Bucket="bucket", Key="v1/production.jws")["Body"].read() == local
+
+
+def test_unknown_key_with_unreadable_payload_is_overwritten(repo, s3, respx_mock):
+    envelope = json.loads(stale_keys_remote(repo, remote_version=2, local_version=1))
+    envelope["payload"] = b64url_encode(b"not json")
+    s3.put_object(Bucket="bucket", Key="v1/production.jws", Body=json.dumps(envelope).encode())
+    local = repo.dist_path("production").read_bytes()
+    respx_mock.get(f"{PUBLIC}production.jws").respond(200, content=local)
+
+    rows = run(repo, [S3_TARGET], s3=s3, environ=S3_ENV, envs=("production",))
+
+    assert rows_of(rows) == [("yandex", "production", "upload", "ok")]
+
+
+def test_newer_remote_with_bad_signature_is_overwritten(repo, s3, respx_mock):
+    envelope = json.loads(newer_remote_older_local(repo))
+    signature = envelope["signatures"][0]
+    signature["signature"] = b64url_encode(bytes(64))
+    s3.put_object(Bucket="bucket", Key="v1/production.jws", Body=json.dumps(envelope).encode())
+    local = repo.dist_path("production").read_bytes()
+    respx_mock.get(f"{PUBLIC}production.jws").respond(200, content=local)
+
+    rows = run(repo, [S3_TARGET], s3=s3, environ=S3_ENV, envs=("production",))
+
+    assert rows_of(rows) == [("yandex", "production", "upload", "ok")]
+
+
+def test_git_rollback_refused_when_remote_key_is_unknown(repo, respx_mock, git_env):
+    runner = FakeRunner()
+    remote = stale_keys_remote(repo, remote_version=2, local_version=1)
+    respx_mock.get(f"{GIT_PUBLIC}production.jws").respond(200, content=remote)
+    respx_mock.get(f"{GIT_PUBLIC}staging.jws").respond(
+        200, content=repo.dist_path("staging").read_bytes()
+    )
+
+    rows = run(repo, [GIT_TARGET], runner=runner, environ=git_env)
+
+    assert runner.calls == []
+    assert rows_of(rows) == [
+        ("github", "production", "rollback_refused", "error: rollback_refused"),
+        ("github", "staging", "unchanged", "ok"),
+    ]
 
 
 def test_missing_credentials_is_a_target_error(signed, s3, respx_mock):
