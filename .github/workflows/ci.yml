@@ -1,0 +1,36 @@
+name: ci
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  ci:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0 # bin/check --base reads dist/ from the base commit
+      - uses: jdx/mise-action@v2
+      - run: mise run setup
+      - run: mise run ci
+      - name: version grows against the base
+        env:
+          BASE: ${{ github.event_name == 'pull_request' && github.event.pull_request.base.sha || github.event.before }}
+        run: |
+          if [ -z "$BASE" ] || [ "$BASE" = "0000000000000000000000000000000000000000" ]; then
+            bin/check
+          else
+            bin/check --base "$BASE"
+          fi
+      - name: publication plan
+        if: github.event_name == 'pull_request'
+        run: mise run publish:dry-run
