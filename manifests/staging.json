@@ -1,9 +1,9 @@
 {
   "schema": 1,
   "env": "staging",
-  "version": 2,
-  "issued_at": "2026-11-02T14:14:21Z",
-  "expires_at": "2027-05-01T14:14:21Z",
+  "version": 3,
+  "issued_at": "2026-11-02T14:45:14Z",
+  "expires_at": "2027-05-01T14:45:14Z",
   "base_domains": [
     "konsierge.com",
     "ai-konsierge.ru"
@@ -11,9 +11,8 @@
   "health_path": "/healthz",
   "mirrors": [
     "https://storage.yandexcloud.net/konsierge-bootstrap/v1/staging.jws",
-    "https://konsierge-bootstrap.selstorage.ru/v1/staging.jws",
-    "https://raw.githubusercontent.com/DigitalBoxMobile/bootstrap/main/dist/staging.jws",
-    "https://bootstrap.ai-konsierge.ru/v1/staging.jws"
+    "https://83ae1846-0a7a-4209-8c6e-84ef458fa6ce.selstorage.ru/v1/staging.jws",
+    "https://raw.githubusercontent.com/DigitalBoxMobile/bootstrap/main/dist/staging.jws"
   ],
   "policy": {
     "connect_timeout_ms": 3000,

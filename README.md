@@ -130,15 +130,16 @@ curl -fsS https://api.github.com/meta | python3 -c 'import json,sys; [print("git
    на папку; у бакета флаг публичного чтения объектов (`--public-read`, листинг выключен) и политика: анонимный `s3:GetObject`
    на `v1/*`, сервисному аккаунту `s3:GetObject`/`s3:PutObject` на `v1/*` и `s3:ListBucket` (без него отсутствующий объект
    отдаёт 403 вместо 404). Запрос, не попавший ни под одно правило политики, запрещён.
-2. Сервисные аккаунты по одному на провайдера с записью в этот бакет; статические ключи — в секреты.
-3. GitHub-репозиторий `DigitalBoxMobile/bootstrap` (публичный, ветка `main`) и deploy-ключ с правом записи; приватная часть — в секреты. Актуальный `known_hosts`
-   с ключами `github.com` лежит в репозитории (как обновить — в разделе «Секреты»).
-4. CNAME `bootstrap.ai-konsierge.ru` на один из бакетов, сертификат выпускает провайдер бакета.
-5. Адреса Selectel в `mirrors.yml` (endpoint `s3.storage.selcloud.ru`, регион `ru-1`, публичный домен) подтвердить при создании
-   бакета. Если URL изменились, поправить `mirrors.yml` и `mirrors` в манифестах и переподписать `dist/`.
-6. Секреты в GitLab CI (protected + masked, deploy-ключ как File) и в Passbolt.
+   Selectel (сделано): проект `bootstrap`, пул `ru-7` (endpoint `s3.ru-7.storage.selcloud.ru`), публичный бакет; анонимное чтение
+   идёт только через публичный домен `83ae1846-0a7a-4209-8c6e-84ef458fa6ce.selstorage.ru` (листинг закрыт). Сервисный пользователь
+   `bootstrap-publisher` с ролью `s3.user` на проект: сама роль доступа к объектам не даёт, его выдаёт политика бакета —
+   `s3:GetObject`/`s3:PutObject` на `v1/*` и `s3:ListBucket`, плюс правило для администратора (политика действует и на панель).
+2. GitHub-репозиторий `DigitalBoxMobile/bootstrap` (публичный, ветка `main`, ruleset запрещает удаление и force-push)
+   и deploy-ключ с правом записи; приватная часть — в секреты. Актуальный `known_hosts` с ключами `github.com` лежит
+   в репозитории (как обновить — в разделе «Секреты»).
+3. Секреты в GitLab CI (protected + masked, deploy-ключ как File) и в Passbolt.
 
-До появления бакетов `publish` в CI падает с `missing_credentials`, а `check-mirrors` сообщает `unreachable`/`http_error` — это ожидаемо.
+Если меняется публичный URL зеркала, поправить `mirrors.yml` и `mirrors` в манифестах, поднять `version` и переподписать `dist/`.
 
 ## Мониторинг зеркал
 

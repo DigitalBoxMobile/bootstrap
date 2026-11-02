@@ -3,9 +3,11 @@
 - **Health-роутер в Traefik для проб клиента.** Сейчас клиент считает домен живым по любому HTTP-ответу Traefik
   (`docs/client-contract.md`, «Выбор домена»). Добавить в репозитории `traefik` роутер `Path(/healthz)` → `ping@internal`
   (`--ping=true`) для всех хостов базовых доменов, после чего клиент сможет требовать 200.
-- **Создать зеркала и секреты публикации**: бакеты Yandex и Selectel, сервисные аккаунты, GitHub `DigitalBoxMobile/bootstrap`
-  с deploy-ключом, CNAME `bootstrap.ai-konsierge.ru`, переменные GitLab CI — по README. Подтвердить endpoint и публичный
-  домен Selectel.
+- **Секреты публикации в GitLab CI и Passbolt**: ключи Yandex и Selectel, deploy-ключ GitHub (File) — по README.
+  Зеркала созданы и опубликованы.
+- **Зеркало на своём домене `bootstrap.ai-konsierge.ru`** (отложено): у Selectel TLS для своего домена бакета загружается вручную
+  после каждого продления. Вернуть, когда wildcard-сертификат с `infra` будет автоматически загружаться в Selectel через API
+  сертификатов при продлении (или повесить домен на Yandex с автопродлением в Certificate Manager); затем URL в манифесты и переподпись.
 - **Прогнать GitLab CI Lint** для `.gitlab-ci.yml`, когда `gitlab.konsierge.com` доступен (при реализации не резолвился).
 - **Развернуть `bin/check-mirrors` на `proxy`** по cron с push в Uptime Kuma.
 - **Этап 2 — клиентские библиотеки iOS и Android** по `docs/client-contract.md` и `testdata/`: fetch с хеджированием, проверка,
