@@ -1,0 +1,39 @@
+name: publish
+
+on:
+  workflow_run:
+    workflows: [ci]
+    types: [completed]
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: publish
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    # Only a green ci run of a push to main; pull request runs never publish
+    if: github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.event == 'push'
+    runs-on: ubuntu-latest
+    environment: production
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.workflow_run.head_sha }}
+      - uses: jdx/mise-action@v2
+      - run: mise run setup
+      # The GitHub mirror is this repository itself: the push to main already published it
+      - name: publish to object storage
+        env:
+          BOOTSTRAP_YANDEX_ACCESS_KEY_ID: ${{ secrets.BOOTSTRAP_YANDEX_ACCESS_KEY_ID }}
+          BOOTSTRAP_YANDEX_SECRET_ACCESS_KEY: ${{ secrets.BOOTSTRAP_YANDEX_SECRET_ACCESS_KEY }}
+          BOOTSTRAP_SELECTEL_ACCESS_KEY_ID: ${{ secrets.BOOTSTRAP_SELECTEL_ACCESS_KEY_ID }}
+          BOOTSTRAP_SELECTEL_SECRET_ACCESS_KEY: ${{ secrets.BOOTSTRAP_SELECTEL_SECRET_ACCESS_KEY }}
+        run: bin/publish --target yandex --target selectel
+      - name: compare mirrors with dist
+        # raw.githubusercontent.com may serve the previous version for a few minutes
+        continue-on-error: true
+        run: mise run mirrors

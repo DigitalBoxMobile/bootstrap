@@ -3,7 +3,8 @@
 - **Health-роутер в Traefik для проб клиента.** Сейчас клиент считает домен живым по любому HTTP-ответу Traefik
   (`docs/client-contract.md`, «Выбор домена»). Добавить в репозитории `traefik` роутер `Path(/healthz)` → `ping@internal`
   (`--ping=true`) для всех хостов базовых доменов, после чего клиент сможет требовать 200.
-- **Секреты публикации в GitLab CI и Passbolt**: ключи Yandex и Selectel, deploy-ключ GitHub (File) — по README.
+- **Настроить GitHub для CI**: environment `production` (только `main`) с секретами Yandex и Selectel, ruleset `main`
+  с обязательной проверкой `ci`; копии секретов в Passbolt — по README.
   Зеркала созданы и опубликованы.
 - **Зеркало на своём домене `bootstrap.ai-konsierge.ru`** (отложено): у Selectel TLS для своего домена бакета загружается вручную
   после каждого продления. Вернуть, когда wildcard-сертификат с `infra` будет автоматически загружаться в Selectel через API
@@ -11,9 +12,6 @@
 - **Откат зеркала издателем с устаревшим `keys/`.** Если на зеркале более новый манифест, подписанный ключом, которого нет
   в локальном `keys/` (устаревший клон после ротации), `publish` считает объект невалидным и перезаписывает его старой версией.
   Отказывать (`rollback_refused`), когда объект на зеркале не проходит контракт только по `unknown_key`, а его `version` выше локальной.
-- **CI через mise.** `.gitlab-ci.yml` использует образ `uv:python3.13` и дублирует команды задач `mise.toml`; перевести jobs
-  на образ с mise и `mise run ci`, когда GitLab доступен для проверки пайплайна.
-- **Прогнать GitLab CI Lint** для `.gitlab-ci.yml`, когда `gitlab.konsierge.com` доступен (при реализации не резолвился).
 - **Развернуть `bin/check-mirrors` на `proxy`** по cron с push в Uptime Kuma.
 - **Этап 2 — клиентские библиотеки iOS и Android** по `docs/client-contract.md` и `testdata/`: fetch с хеджированием, проверка,
   кеш, выбор домена, переписывание URL, хук в `URLSession`/OkHttp; встраивание `dist/<env>.jws` и `keys/` в сборку. ~3–5 дней на платформу.

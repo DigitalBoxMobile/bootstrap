@@ -1,0 +1,3 @@
+#!/usr/bin/env sh
+# Entry point for the global pre-push hook: the same checks CI runs
+exec mise run ci

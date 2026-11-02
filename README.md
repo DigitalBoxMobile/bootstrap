@@ -47,12 +47,16 @@ docs/        контракт клиента, ADR
 
 ## Поток изменения
 
-1. Правка `manifests/<env>.json`, `version += 1` — MR.
-2. Владелец ключа: `bin/sign <env> --kid <kid>` (парольная фраза `age`), новый JWS в `dist/`; коммит в тот же MR.
-3. CI на MR: тесты, `bin/check --base <база MR>` (схема, подпись, `version` строго растёт), `bin/publish --dry-run`.
-4. Merge в `master`: CI запускает `bin/publish` — `dist/*.jws` байт в байт во все цели из `mirrors.yml`,
-   затем скачивает с каждого зеркала и сравнивает.
-5. Без GitLab: тот же `bin/publish` с ноутбука (см. «Аварийная публикация»).
+Источник правды — GitHub `DigitalBoxMobile/bootstrap`, ветка `main`; CI — GitHub Actions (`.github/workflows/`).
+
+1. Правка `manifests/<env>.json`, `version += 1` — pull request.
+2. Владелец ключа: `bin/sign <env> --kid <kid>` (парольная фраза `age`), новый JWS в `dist/`; коммит в тот же PR.
+3. Workflow `ci` на PR: `mise run ci` (тесты, линтер, `bin/check`), `bin/check --base <база PR>` (`version` строго растёт),
+   `bin/publish --dry-run`.
+4. Merge в `main` — это и есть публикация на GitHub-зеркало (raw). После зелёного `ci` на `main` workflow `publish`
+   (environment `production`, без параллельных запусков) раскладывает `dist/*.jws` байт в байт в Yandex и Selectel
+   условной записью и сравнивает зеркала с `dist/`.
+5. Без GitHub Actions и `konsierge.com`: тот же `bin/publish` с ноутбука (см. «Аварийная публикация»).
 
 CI не подписывает, а только проверяет и публикует. Ручная правка `dist/*.jws` запрещена.
 
@@ -112,7 +116,7 @@ HTTP 200 за 10 с (`http_error`, `unreachable`), прохождение кон
 
 ## Аварийная публикация с ноутбука
 
-Без GitLab и `konsierge.com`: секреты читаются из `age`-зашифрованного dotenv.
+Без GitHub Actions и `konsierge.com`: секреты читаются из `age`-зашифрованного dotenv.
 
 ```sh
 # один раз: файл с переменными из таблицы «Секреты», по строке NAME=value
@@ -130,15 +134,15 @@ bin/publish --secrets ~/.config/konsierge/bootstrap/publish.env.age
 
 | Имя | Цель | Вид | Где хранится |
 | --- | --- | --- | --- |
-| `BOOTSTRAP_YANDEX_ACCESS_KEY_ID` | Yandex Object Storage | статический ключ доступа S3 сервисного аккаунта с записью в один бакет | CI: protected + masked; локально: в `age`-dotenv; копия в Passbolt |
+| `BOOTSTRAP_YANDEX_ACCESS_KEY_ID` | Yandex Object Storage | статический ключ доступа S3 сервисного аккаунта с записью в один бакет | CI: секрет environment `production` в GitHub; локально: в `age`-dotenv; копия в Passbolt |
 | `BOOTSTRAP_YANDEX_SECRET_ACCESS_KEY` | Yandex Object Storage | секрет того же ключа | то же |
 | `BOOTSTRAP_SELECTEL_ACCESS_KEY_ID` | Selectel Object Storage | статический ключ доступа S3 сервисного аккаунта с записью в один бакет | то же |
 | `BOOTSTRAP_SELECTEL_SECRET_ACCESS_KEY` | Selectel Object Storage | секрет того же ключа | то же |
-| `BOOTSTRAP_GITHUB_DEPLOY_KEY` | git-зеркало `DigitalBoxMobile/bootstrap` | приватный SSH deploy-ключ с правом записи | CI: переменная типа **File** (protected); локально: путь к файлу в `age`-dotenv; копия в Passbolt |
+| `BOOTSTRAP_GITHUB_DEPLOY_KEY` | git-зеркало `DigitalBoxMobile/bootstrap` | приватный SSH deploy-ключ с правом записи | только для аварийной публикации с ноутбука (CI не пушит: merge в `main` уже публикация); путь к файлу в `age`-dotenv; копия в Passbolt |
 
 Push в git-зеркало идёт по SSH с проверкой ключа хоста: `known_hosts` в корне репозитория (поле `known_hosts` цели в `mirrors.yml`)
 содержит опубликованные ключи `github.com` (ed25519, ecdsa, rsa). Перед push `publish` копирует deploy-ключ во временный файл с правами
-`0600` (File-переменная GitLab может иметь другие права) и удаляет его после; `StrictHostKeyChecking=yes`, `BatchMode=yes`.
+`0600` (исходный файл может иметь другие права) и удаляет его после; `StrictHostKeyChecking=yes`, `BatchMode=yes`.
 Обновить `known_hosts` при ротации ключей GitHub:
 
 ```sh
@@ -147,7 +151,8 @@ curl -fsS https://api.github.com/meta | python3 -c 'import json,sys; [print("git
 
 Сверить с https://docs.github.com/en/authentication/keeping-your-account-and-data-secure/githubs-ssh-key-fingerprints и закоммитить.
 
-Переменные CI видны только защищённым веткам (`master`), поэтому MR их не получают: `publish:dry-run` работает без секретов.
+Секреты environment `production` доступны только workflow `publish` на `main` (правило deployment branches environment);
+pull request, в том числе из форков, их не получают — `publish --dry-run` работает без секретов.
 
 ## Что создать до первой публикации
 
@@ -165,7 +170,9 @@ curl -fsS https://api.github.com/meta | python3 -c 'import json,sys; [print("git
 2. GitHub-репозиторий `DigitalBoxMobile/bootstrap` (публичный, ветка `main`, ruleset запрещает удаление и force-push)
    и deploy-ключ с правом записи; приватная часть — в секреты. Актуальный `known_hosts` с ключами `github.com` лежит
    в репозитории (как обновить — в разделе «Секреты»).
-3. Секреты в GitLab CI (protected + masked, deploy-ключ как File) и в Passbolt.
+3. Environment `production` в настройках GitHub-репозитория: deployment branches — только `main`; секреты
+   `BOOTSTRAP_YANDEX_*` и `BOOTSTRAP_SELECTEL_*`. Ruleset `main`: обязательная проверка `ci`, без прямого push
+   (исключение — deploy-ключ для аварийного пути). Копии секретов — в Passbolt.
 
 Если меняется публичный URL зеркала, поправить `mirrors.yml` и `mirrors` в манифестах, поднять `version` и переподписать `dist/`.
 
