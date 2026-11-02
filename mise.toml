@@ -1,0 +1,44 @@
+[tools]
+age = "1.3.2"
+python = "3.13"
+uv = "0.11.16"
+
+[env]
+# uv uses the mise-provided interpreter instead of downloading its own
+UV_PYTHON_DOWNLOADS = "never"
+
+[tasks.setup]
+description = "Install Python dependencies"
+run = "uv sync --frozen"
+
+[tasks.test]
+description = "Run the test suite"
+run = "uv run --frozen pytest"
+
+[tasks.lint]
+description = "Lint and check formatting"
+run = ["uv run --frozen ruff check", "uv run --frozen ruff format --check"]
+
+[tasks.fmt]
+description = "Format the code"
+run = "uv run --frozen ruff format"
+
+[tasks.check]
+description = "Repository consistency: keys, manifests, signed dist"
+run = "bin/check"
+
+[tasks.ci]
+description = "Everything CI runs before publishing"
+depends = ["test", "lint", "check"]
+
+[tasks.mirrors]
+description = "Compare every mirror with dist/"
+run = "bin/check-mirrors"
+
+[tasks."publish:dry-run"]
+description = "Publication plan without writes"
+run = "bin/publish --dry-run"
+
+[tasks.publish]
+description = "Publish dist/ to all mirrors with secrets from the age-encrypted dotenv"
+run = "bin/publish --secrets ~/.config/konsierge/bootstrap/publish.env.age"

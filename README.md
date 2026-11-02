@@ -11,11 +11,25 @@
 ## Установка
 
 ```sh
-brew install uv age
-uv sync
+mise install       # python 3.13, uv и age закреплены в mise.toml
+mise run setup     # uv sync --frozen
 ```
 
-Все команды лежат в `bin/` и запускаются из любого каталога. Для CI и проверок нужен только `uv`;
+Задачи `mise run <имя>`:
+
+| Задача | Что делает |
+| --- | --- |
+| `setup` | установка Python-зависимостей |
+| `test` | `pytest` |
+| `lint` | `ruff check` и `ruff format --check` |
+| `fmt` | `ruff format` |
+| `check` | `bin/check` |
+| `ci` | `test`, `lint`, `check` — всё, что CI запускает до публикации |
+| `mirrors` | `bin/check-mirrors` |
+| `publish:dry-run` | `bin/publish --dry-run` |
+| `publish` | `bin/publish --secrets ~/.config/konsierge/bootstrap/publish.env.age` |
+
+Команды `bin/*` лежат в `bin/` и запускаются из любого каталога. Для CI и проверок нужен только `uv`;
 `age` нужен там, где подписывают (`keygen`, `sign`) или читают зашифрованные секреты (`publish --secrets`).
 
 ## Структура
@@ -61,7 +75,21 @@ bin/check-mirrors --env production --format json --expire-warn-days 30
 `bin/check-mirrors` берёт эталон `dist/<env>.jws` из рабочего дерева и проверяет каждый URL из `mirrors` манифеста:
 HTTP 200 за 10 с (`http_error`, `unreachable`), прохождение контракта (код отказа контракта), байты равны эталону
 (`version_behind`, `version_ahead`, `content_mismatch`), срок `expires_at` дальше порога (`expiring`, по умолчанию 60 дней).
+Ответ зеркала длиннее 65536 байт — `oversized`; неожиданное исключение при проверке одного URL — `internal_error`
+(с типом исключения), остальные URL проверяются дальше.
 Выход `0` — всё в порядке, `1` — есть проблема; `--format json` печатает массив `{env, url, ok, problems[]}`.
+
+`bin/publish` перед записью читает зеркало (preflight) и сообщает по каждой паре env/цель результат: `unchanged`,
+`rollback_refused`, `upload`, либо ошибку:
+
+- `conflict` — условная запись в S3 отклонена (`412`): объект изменился после preflight; повторить публикацию.
+- `env_filter_conflict` — git-зеркало публикует весь `HEAD`, поэтому `--env` не может исключить env, чей `dist/`
+  на git-зеркале отличается; цель не пушится, выход `1`.
+- `oversized` — ответ зеркала при preflight длиннее 65536 байт.
+- `internal_error` — неожиданное исключение при проверке URL; тип исключения в деталях.
+
+Запись в S3 условная (`If-Match` с ETag из preflight, `If-None-Match: *` для нового объекта), поэтому
+конкурентные издатели не могут откатить зеркало. Git-цель push-ит без force.
 
 ## Ключи
 

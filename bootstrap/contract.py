@@ -10,7 +10,7 @@ from jwcrypto.jws import JWS
 from bootstrap import manifest as manifest_module
 from bootstrap.jws import b64url_decode
 
-TIMESTAMP_FORMAT = "%Y-%m-%dT%H:%M:%SZ"
+TIMESTAMP_FORMAT = manifest_module.TIMESTAMP_FORMAT
 
 
 @dataclass(frozen=True)
@@ -56,7 +56,7 @@ def _parse_envelope(data: bytes) -> tuple[str, list[dict]] | None:
                 return None
             b64url_decode(sig["protected"])
             b64url_decode(sig["signature"])
-    except (ValueError, KeyError, TypeError):
+    except (ValueError, KeyError, TypeError, RecursionError):
         return None
     return payload, signatures
 
@@ -65,7 +65,7 @@ def _header_kid(protected: str) -> str | None:
     """Step 2: the kid of an eligible signature, or None when it must be skipped."""
     try:
         header = json.loads(b64url_decode(protected))
-    except ValueError:
+    except (ValueError, RecursionError):
         return None
     if not isinstance(header, dict) or header.get("alg") != "EdDSA" or "crit" in header:
         return None
@@ -111,7 +111,7 @@ def evaluate(
 
     try:
         parsed = json.loads(b64url_decode(payload).decode("utf-8"))
-    except ValueError:
+    except (ValueError, RecursionError):
         return _reject("malformed")
     if (
         not isinstance(parsed, dict)

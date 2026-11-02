@@ -5,6 +5,7 @@ from dataclasses import dataclass
 import httpx
 
 DEFAULT_TIMEOUT = 10.0
+MAX_BODY_BYTES = 65536
 
 
 @dataclass(frozen=True)
@@ -13,6 +14,7 @@ class Response:
 
     status: int | None
     body: bytes = b""
+    oversized: bool = False
 
     @property
     def unreachable(self) -> bool:
@@ -20,8 +22,21 @@ class Response:
 
 
 def get(url: str, *, timeout: float = DEFAULT_TIMEOUT) -> Response:
+    """Bodies over MAX_BODY_BYTES yield a status-less response with `oversized` set."""
     try:
-        response = httpx.get(url, timeout=timeout, follow_redirects=True)
+        # identity keeps the limit on decoded bytes: gzip could expand a small block enormously
+        with httpx.stream(
+            "GET",
+            url,
+            headers={"Accept-Encoding": "identity"},
+            timeout=timeout,
+            follow_redirects=True,
+        ) as response:
+            body = bytearray()
+            for chunk in response.iter_bytes():
+                body += chunk
+                if len(body) > MAX_BODY_BYTES:
+                    return Response(None, oversized=True)
+            return Response(response.status_code, bytes(body))
     except (httpx.HTTPError, httpx.InvalidURL):
         return Response(None)
-    return Response(response.status_code, response.content)
