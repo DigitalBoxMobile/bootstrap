@@ -8,7 +8,7 @@ from pathlib import Path
 
 from jwcrypto.jwk import JWK
 
-from bootstrap import jws, manifest
+from bootstrap import jws, keys, manifest
 from bootstrap.manifest import ROOT
 
 NOW = "2026-11-02T12:00:00Z"
@@ -42,18 +42,6 @@ def base_manifest(env: str, version: int = 1) -> dict:
         },
         "min_app_version": {"ios": "0", "android": "0"},
         "notice": {"ru": "", "en": ""},
-    }
-
-
-def _public_jwk(key: JWK, kid: str) -> dict:
-    public = json.loads(key.export_public())
-    return {
-        "kty": public["kty"],
-        "crv": public["crv"],
-        "x": public["x"],
-        "kid": kid,
-        "use": "sig",
-        "alg": "EdDSA",
     }
 
 
@@ -154,7 +142,7 @@ def generate(directory: Path) -> None:
         shutil.rmtree(directory)
     (directory / "keys").mkdir(parents=True)
     for kid, key in ((PROD_KID, prod), (STAGE_KID, stage)):
-        text = json.dumps(_public_jwk(key, kid), indent=2) + "\n"
+        text = json.dumps(keys.public_jwk(key, kid), indent=2) + "\n"
         (directory / "keys" / f"{kid}.pub.json").write_text(text)
     for vector, data in cases:
         (directory / vector["file"]).write_bytes(data)

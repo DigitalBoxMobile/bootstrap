@@ -1,8 +1,11 @@
 """Public key directory: kid format, kid -> environment mapping."""
 
 import json
+import os
 import re
 from pathlib import Path
+
+from jwcrypto.jwk import JWK
 
 from bootstrap.manifest import ROOT
 
@@ -24,6 +27,28 @@ def load_dir(directory: Path = DEFAULT_DIR) -> dict[str, dict]:
         jwk = json.loads(path.read_text())
         keys[jwk["kid"]] = jwk
     return keys
+
+
+def public_jwk(key: JWK, kid: str) -> dict:
+    """Public half of an Ed25519 key in the shape of `keys/<kid>.pub.json`."""
+    public = json.loads(key.export_public())
+    return {
+        "kty": public["kty"],
+        "crv": public["crv"],
+        "x": public["x"],
+        "kid": kid,
+        "use": "sig",
+        "alg": "EdDSA",
+    }
+
+
+def private_key_dir() -> Path:
+    override = os.environ.get("BOOTSTRAP_KEY_DIR")
+    return Path(override).expanduser() if override else Path.home() / ".config/konsierge/bootstrap"
+
+
+def private_key_path(kid: str, directory: Path | None = None) -> Path:
+    return (directory or private_key_dir()) / f"{kid}.jwk.age"
 
 
 def trusted_for_env(keys: dict[str, dict], env: str) -> dict[str, dict]:

@@ -1,0 +1,31 @@
+{
+  "schema": 1,
+  "env": "production",
+  "version": 1,
+  "issued_at": "1970-01-01T00:00:00Z",
+  "expires_at": "1970-01-02T00:00:00Z",
+  "base_domains": [
+    "konsierge.com",
+    "ai-konsierge.ru"
+  ],
+  "health_path": "/healthz",
+  "mirrors": [
+    "https://storage.yandexcloud.net/konsierge-bootstrap/v1/production.jws",
+    "https://konsierge-bootstrap.selstorage.ru/v1/production.jws",
+    "https://raw.githubusercontent.com/konsierge/bootstrap/master/dist/production.jws",
+    "https://bootstrap.ai-konsierge.ru/v1/production.jws"
+  ],
+  "policy": {
+    "connect_timeout_ms": 3000,
+    "probe_interval_s": 600,
+    "refresh_interval_s": 21600
+  },
+  "min_app_version": {
+    "ios": "0",
+    "android": "0"
+  },
+  "notice": {
+    "ru": "",
+    "en": ""
+  }
+}
