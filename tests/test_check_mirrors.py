@@ -166,3 +166,27 @@ def test_env_filter_checks_only_selected_env(signed, respx_mock, capsys):
 
     assert status == 0
     assert {r["env"] for r in json.loads(capsys.readouterr().out)} == {"staging"}
+
+
+def test_deeply_nested_json_is_malformed(signed, respx_mock):
+    serve_reference(signed, respx_mock)
+    respx_mock.get(PROD_URLS[0]).respond(200, content=b"[" * 10000 + b"0" + b"]" * 10000)
+
+    assert problems_by_url(run(signed))[PROD_URLS[0]] == ["malformed"]
+
+
+def test_oversized_body_is_oversized(signed, respx_mock):
+    serve_reference(signed, respx_mock)
+    respx_mock.get(PROD_URLS[1]).respond(200, content=b"a" * 70000)
+
+    assert problems_by_url(run(signed))[PROD_URLS[1]] == ["oversized"]
+
+
+def test_crash_on_one_url_does_not_stop_others(signed, respx_mock):
+    serve_reference(signed, respx_mock)
+    respx_mock.get(PROD_URLS[0]).mock(side_effect=RuntimeError("boom"))
+
+    problems = problems_by_url(run(signed))
+
+    assert problems[PROD_URLS[0]] == ["internal_error: RuntimeError"]
+    assert [problems[u] for u in PROD_URLS[1:]] == [[], [], []]

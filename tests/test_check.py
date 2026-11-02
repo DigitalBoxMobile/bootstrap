@@ -213,3 +213,15 @@ def test_check_reports_unreadable_dist_against_base(repo):
     repo.dist_path("staging").write_text("garbage")
 
     assert "dist_unreadable" in error_codes(repo, base)
+
+
+def test_check_reports_impossible_calendar_date_without_traceback(signed):
+    manifest = signed.read_manifest("production")
+    manifest["issued_at"] = "2026-02-30T12:00:00Z"
+    signed.write_manifest("production", manifest)
+
+    results = {r.name: r.error for r in check.run(root=signed.root)}
+
+    assert results["manifests/production.json"].code == "invalid_manifest"
+    assert results["manifests/staging.json"] is None
+    assert results["dist/staging.jws"] is None

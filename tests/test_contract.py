@@ -225,3 +225,17 @@ def test_result_dict_shapes(signer):
     ok = evaluate(doc_of(good_manifest(), key), trusted).as_dict()
     assert list(ok) == ["accepted", "env", "version", "valid_kids", "expires_at", "expired"]
     assert evaluate(b"x", trusted).as_dict() == {"accepted": False, "reason": "malformed"}
+
+
+def test_deeply_nested_json_is_malformed(signer):
+    _, trusted = signer
+    data = b"[" * 10000 + b"0" + b"]" * 10000
+    assert evaluate(data, trusted).reason == "malformed"
+
+
+def test_impossible_calendar_date_is_invalid_manifest(signer):
+    key, trusted = signer
+    m = good_manifest()
+    m["issued_at"] = "2026-02-30T12:00:00Z"
+    assert evaluate(doc_of(m, key), trusted).reason == "invalid_manifest"
+    assert "issued_at" in manifest.schema_errors(m)[0]

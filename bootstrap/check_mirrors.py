@@ -69,7 +69,9 @@ def _check_url(
 ) -> Row:
     problems = []
     response = http_module.get(url)
-    if response.unreachable:
+    if response.oversized:
+        problems.append("oversized")
+    elif response.unreachable:
         problems.append("unreachable")
     elif response.status != 200:
         problems.append("http_error")
@@ -82,6 +84,14 @@ def _check_url(
     if expiring:
         problems.append("expiring")
     return Row(env, url, problems)
+
+
+def _safe_check_url(url: str, **kwargs) -> Row:
+    """One URL's unexpected failure becomes its own row and never aborts the others."""
+    try:
+        return _check_url(url, **kwargs)
+    except Exception as error:  # isolate any per-URL failure
+        return Row(kwargs["env"], url, [f"internal_error: {type(error).__name__}"])
 
 
 def run(
@@ -99,7 +109,7 @@ def run(
         remaining = contract.parse_timestamp(manifest["expires_at"]) - now
         expiring = remaining <= timedelta(days=warn_days)
         rows.extend(
-            _check_url(
+            _safe_check_url(
                 url, env=env, reference=reference, trusted=trusted, now=now, expiring=expiring
             )
             for url in manifest["mirrors"]
