@@ -7,6 +7,7 @@ from pathlib import Path
 
 from jwcrypto.jwk import JWK
 
+from bootstrap.errors import CommandError
 from bootstrap.manifest import ROOT
 
 KID_RE = re.compile(r"^(prod|stage)-[0-9]{4}[a-z]$")
@@ -24,8 +25,11 @@ def load_dir(directory: Path = DEFAULT_DIR) -> dict[str, dict]:
     """Load every `*.pub.json` JWK, keyed by kid."""
     keys = {}
     for path in sorted(Path(directory).glob("*.pub.json")):
-        jwk = json.loads(path.read_text())
-        keys[jwk["kid"]] = jwk
+        try:
+            jwk = json.loads(path.read_text())
+            keys[jwk["kid"]] = jwk
+        except (ValueError, KeyError, TypeError) as error:
+            raise CommandError("bad_key", f"{path.name}: not a public JWK with a kid") from error
     return keys
 
 

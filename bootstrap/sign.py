@@ -80,8 +80,6 @@ def sign(env: str, kids: list[str], *, root: Path, key_dir: Path, age: Age, now:
     if len(data) > MAX_DIST_BYTES:
         raise CommandError("too_large", f"{len(data)} bytes > {MAX_DIST_BYTES}")
 
-    dist_path.parent.mkdir(exist_ok=True)
-    dist_path.write_bytes(data)
     result = contract.evaluate(
         data,
         env=env,
@@ -90,6 +88,8 @@ def sign(env: str, kids: list[str], *, root: Path, key_dir: Path, age: Age, now:
     )
     if not result.accepted:
         raise CommandError("verify_failed", f"{dist_path}: {result.reason}")
+    dist_path.parent.mkdir(exist_ok=True)
+    dist_path.write_bytes(data)
     return {"version": manifest["version"], "kids": result.valid_kids, "bytes": len(data)}
 
 

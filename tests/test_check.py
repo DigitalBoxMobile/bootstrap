@@ -69,6 +69,25 @@ def test_check_rejects_private_scalar_in_keys_directory(signed):
     assert error_codes(signed) == ["bad_key"]
 
 
+@pytest.mark.parametrize(
+    "mutate",
+    [
+        lambda jwk: jwk.pop("use"),
+        lambda jwk: jwk.update(use="enc"),
+        lambda jwk: jwk.pop("alg"),
+        lambda jwk: jwk.update(alg="RS256"),
+        lambda jwk: jwk.update(k="c2VjcmV0"),
+        lambda jwk: jwk.update(p="c2VjcmV0"),
+    ],
+)
+def test_check_rejects_wrong_jwk_shape(signed, mutate):
+    jwk = keys.public_jwk(signed.privates["prod-2026b"], "prod-2026b")
+    mutate(jwk)
+    signed.write_public("prod-2026b", jwk)
+
+    assert error_codes(signed) == ["bad_key"]
+
+
 def test_check_rejects_kid_that_differs_from_filename(signed):
     jwk = keys.public_jwk(signed.privates["prod-2026b"], "prod-2026a")
     signed.write_public("prod-2026b", jwk)
@@ -187,3 +206,10 @@ def test_base_with_unknown_ref_is_an_error(signed):
     with pytest.raises(CommandError) as raised:
         check.run(root=signed.root, base="no-such-ref")
     assert raised.value.code == "bad_base"
+
+
+def test_check_reports_unreadable_dist_against_base(repo):
+    base = repo.commit("empty")
+    repo.dist_path("staging").write_text("garbage")
+
+    assert "dist_unreadable" in error_codes(repo, base)

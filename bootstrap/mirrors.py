@@ -12,7 +12,7 @@ DEFAULT_PATH = ROOT / "mirrors.yml"
 COMMON_FIELDS = ("name", "type", "public_url", "credentials")
 TYPE_FIELDS = {
     "s3": ("endpoint", "region", "bucket", "prefix"),
-    "git": ("push_url", "branch"),
+    "git": ("push_url", "branch", "known_hosts"),
 }
 MAY_BE_EMPTY = {"prefix"}  # an empty S3 prefix means the bucket root
 
@@ -29,6 +29,7 @@ class Target:
     prefix: str = ""
     push_url: str = ""
     branch: str = ""
+    known_hosts: str = ""  # path relative to mirrors.yml
 
     def public_file_url(self, env: str) -> str:
         return f"{self.public_url}{env}.jws"
@@ -41,7 +42,7 @@ def _bad(detail: str) -> CommandError:
     return CommandError("bad_config", detail)
 
 
-def _target(index: int, raw: object) -> Target:
+def _target(index: int, raw: object, base: Path) -> Target:
     if not isinstance(raw, dict):
         raise _bad(f"targets[{index}] is not a mapping")
     kind = raw.get("type")
@@ -58,6 +59,8 @@ def _target(index: int, raw: object) -> Target:
         raise _bad(f"{label}: missing or empty {', '.join(invalid)}")
     if not raw["public_url"].endswith("/"):
         raise _bad(f"{label}: public_url must end with '/'")
+    if kind == "git" and not (base / raw["known_hosts"]).is_file():
+        raise _bad(f"{label}: known_hosts file {raw['known_hosts']} does not exist")
     return Target(**{f: raw[f] for f in required})
 
 
@@ -69,7 +72,7 @@ def load(path: Path = DEFAULT_PATH) -> list[Target]:
     raw_targets = data.get("targets") if isinstance(data, dict) else None
     if not isinstance(raw_targets, list) or not raw_targets:
         raise _bad(f"{path}: `targets` must be a non-empty list")
-    targets = [_target(i, raw) for i, raw in enumerate(raw_targets)]
+    targets = [_target(i, raw, Path(path).parent) for i, raw in enumerate(raw_targets)]
     names = [t.name for t in targets]
     duplicates = sorted({n for n in names if names.count(n) > 1})
     if duplicates:

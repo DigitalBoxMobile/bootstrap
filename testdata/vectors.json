@@ -57,6 +57,20 @@
     }
   },
   {
+    "name": "alg_none",
+    "file": "alg_none.jws",
+    "env": "production",
+    "trusted_kids": [
+      "prod-9999a"
+    ],
+    "stored_version": 0,
+    "now": "2026-11-02T12:00:00Z",
+    "expect": {
+      "accepted": false,
+      "reason": "unknown_key"
+    }
+  },
+  {
     "name": "rollback",
     "file": "rollback.jws",
     "env": "production",

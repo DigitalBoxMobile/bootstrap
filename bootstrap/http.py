@@ -22,6 +22,6 @@ class Response:
 def get(url: str, *, timeout: float = DEFAULT_TIMEOUT) -> Response:
     try:
         response = httpx.get(url, timeout=timeout, follow_redirects=True)
-    except httpx.HTTPError:
+    except (httpx.HTTPError, httpx.InvalidURL):
         return Response(None)
     return Response(response.status_code, response.content)

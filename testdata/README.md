@@ -37,6 +37,7 @@
 | `tampered_payload` | отказ `bad_signature` |
 | `foreign_key` | отказ `bad_signature` |
 | `unknown_kid` | отказ `unknown_key` |
+| `alg_none` | отказ `unknown_key` |
 | `rollback` | отказ `rollback` |
 | `wrong_env` | отказ `env_mismatch` |
 | `staging_key_in_prod` | отказ `unknown_key` |

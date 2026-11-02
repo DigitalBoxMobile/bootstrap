@@ -4,17 +4,25 @@ import json
 from functools import cache
 from pathlib import Path
 
-from jsonschema import Draft202012Validator
+from jsonschema import Draft202012Validator, validators
 
 from bootstrap.jws import b64url_decode
 
 ROOT = Path(__file__).resolve().parent.parent
 SCHEMA_PATH = ROOT / "schema" / "manifest.v1.json"
 
+# JSON Schema counts 3.0 as an integer; the client contract does not (docs/client-contract.md).
+StrictValidator = validators.extend(
+    Draft202012Validator,
+    type_checker=Draft202012Validator.TYPE_CHECKER.redefine(
+        "integer", lambda _, value: isinstance(value, int) and not isinstance(value, bool)
+    ),
+)
+
 
 @cache
 def validator() -> Draft202012Validator:
-    return Draft202012Validator(json.loads(SCHEMA_PATH.read_text()))
+    return StrictValidator(json.loads(SCHEMA_PATH.read_text()))
 
 
 def load(path: Path) -> dict:

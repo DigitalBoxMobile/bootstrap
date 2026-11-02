@@ -54,6 +54,19 @@ def _tamper_payload(data: bytes) -> bytes:
     return json.dumps(document, separators=(",", ":")).encode() + b"\n"
 
 
+def _alg_none(m: dict, key: JWK) -> bytes:
+    """A genuine Ed25519 signature under a protected header that declares alg none."""
+    payload = jws.b64url_encode(manifest.compact_bytes(m))
+    header = json.dumps({"alg": "none", "kid": PROD_KID}, separators=(",", ":"))
+    protected = jws.b64url_encode(header.encode())
+    signature = jws.b64url_encode(jws.raw_sign(key, f"{protected}.{payload}".encode("ascii")))
+    document = {
+        "payload": payload,
+        "signatures": [{"protected": protected, "signature": signature}],
+    }
+    return json.dumps(document, separators=(",", ":")).encode("ascii") + b"\n"
+
+
 def _vector(name, env, expect, *, stored_version=0, now=NOW) -> dict:
     return {
         "name": name,
@@ -106,6 +119,10 @@ def generate(directory: Path) -> None:
         (
             _vector("unknown_kid", "production", _rejected("unknown_key")),
             sign(base_manifest("production", 3), (FOREIGN_KID, foreign)),
+        ),
+        (
+            _vector("alg_none", "production", _rejected("unknown_key")),
+            _alg_none(base_manifest("production", 3), prod),
         ),
         (
             _vector("rollback", "production", _rejected("rollback"), stored_version=6),

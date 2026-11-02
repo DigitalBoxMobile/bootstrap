@@ -139,3 +139,48 @@ def test_sign_rejects_oversized_file_and_keeps_dist(repo):
     assert sign_error(repo, "production", ["prod-2026a"]) == "too_large"
 
     assert repo.dist_path("production").read_bytes() == signed
+
+
+@pytest.mark.parametrize(
+    "mutate",
+    [
+        lambda m: m.update(version=3.0),
+        lambda m: m["policy"].update(connect_timeout_ms=3000.0),
+    ],
+)
+def test_sign_rejects_float_integers(repo, mutate):
+    manifest = repo.read_manifest("production")
+    mutate(manifest)
+    repo.write_manifest("production", manifest)
+
+    assert sign_error(repo, "production", ["prod-2026a"]) == "invalid_manifest"
+    assert not repo.dist_path("production").exists()
+
+
+def test_sign_verify_failure_keeps_dist(repo, monkeypatch):
+    repo.sign("production", ["prod-2026a"])
+    signed = repo.dist_path("production").read_bytes()
+    manifest = repo.read_manifest("production")
+    manifest["version"] = 2
+    repo.write_manifest("production", manifest)
+    monkeypatch.setattr(
+        contract, "evaluate", lambda *a, **k: contract.Result(False, "bad_signature")
+    )
+
+    assert sign_error(repo, "production", ["prod-2026a"]) == "verify_failed"
+
+    assert repo.dist_path("production").read_bytes() == signed
+
+
+def test_sign_reports_key_file_without_kid(repo):
+    (repo.root / "keys" / "prod-2026c.pub.json").write_text('{"kty": "OKP"}')
+
+    assert sign_error(repo, "production", ["prod-2026a"]) == "bad_key"
+    assert not repo.dist_path("production").exists()
+
+
+def test_sign_reports_unreadable_dist(repo):
+    repo.dist_path("production").write_text("garbage")
+
+    assert sign_error(repo, "production", ["prod-2026a"]) == "dist_unreadable"
+    assert repo.dist_path("production").read_text() == "garbage"

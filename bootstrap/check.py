@@ -18,6 +18,7 @@ from bootstrap.sign import MAX_DIST_BYTES
 
 ENVS = tuple(keys.PREFIX_ENV.values())
 IGNORED_KEY_FILES = {".gitkeep"}
+PRIVATE_MEMBERS = {"d", "p", "q", "dp", "dq", "qi", "oth", "k"}  # RFC 7518 private JWK members
 
 
 @dataclass(frozen=True)
@@ -47,8 +48,10 @@ def _read_key(path: Path) -> dict:
     problems = []
     if jwk.get("kty") != "OKP" or jwk.get("crv") != "Ed25519" or len(x) != 32:
         problems.append("not an Ed25519 OKP key")
-    if "d" in jwk:
-        problems.append("contains a private scalar `d`")
+    if jwk.get("use") != "sig" or jwk.get("alg") != "EdDSA":
+        problems.append('use must be "sig" and alg "EdDSA"')
+    if private := sorted(PRIVATE_MEMBERS & jwk.keys()):
+        problems.append(f"contains private members {', '.join(private)}")
     if jwk.get("kid") != kid or not keys.KID_RE.fullmatch(kid):
         problems.append(f"kid {jwk.get('kid')!r} does not match the file name")
     if problems:

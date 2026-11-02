@@ -99,6 +99,17 @@ bin/publish --secrets ~/.config/konsierge/bootstrap/publish.env.age
 | `BOOTSTRAP_SELECTEL_SECRET_ACCESS_KEY` | Selectel Object Storage | секрет того же ключа | то же |
 | `BOOTSTRAP_GITHUB_DEPLOY_KEY` | git-зеркало `konsierge/bootstrap` | приватный SSH deploy-ключ с правом записи | CI: переменная типа **File** (protected); локально: путь к файлу в `age`-dotenv; копия в Passbolt |
 
+Push в git-зеркало идёт по SSH с проверкой ключа хоста: `known_hosts` в корне репозитория (поле `known_hosts` цели в `mirrors.yml`)
+содержит опубликованные ключи `github.com` (ed25519, ecdsa, rsa). Перед push `publish` копирует deploy-ключ во временный файл с правами
+`0600` (File-переменная GitLab может иметь другие права) и удаляет его после; `StrictHostKeyChecking=yes`, `BatchMode=yes`.
+Обновить `known_hosts` при ротации ключей GitHub:
+
+```sh
+curl -fsS https://api.github.com/meta | python3 -c 'import json,sys; [print("github.com", k) for k in json.load(sys.stdin)["ssh_keys"]]' > known_hosts
+```
+
+Сверить с https://docs.github.com/en/authentication/keeping-your-account-and-data-secure/githubs-ssh-key-fingerprints и закоммитить.
+
 Переменные CI видны только защищённым веткам (`master`), поэтому MR их не получают: `publish:dry-run` работает без секретов.
 
 ## Что создать до первой публикации
@@ -107,7 +118,8 @@ bin/publish --secrets ~/.config/konsierge/bootstrap/publish.env.age
 
 1. Бакеты `konsierge-bootstrap` в Yandex и Selectel с публичным чтением только префикса `v1/`.
 2. Сервисные аккаунты по одному на провайдера с записью в этот бакет; статические ключи — в секреты.
-3. GitHub-репозиторий `konsierge/bootstrap` и deploy-ключ с правом записи; приватная часть — в секреты.
+3. GitHub-репозиторий `konsierge/bootstrap` и deploy-ключ с правом записи; приватная часть — в секреты. Актуальный `known_hosts`
+   с ключами `github.com` лежит в репозитории (как обновить — в разделе «Секреты»).
 4. CNAME `bootstrap.ai-konsierge.ru` на один из бакетов, сертификат выпускает провайдер бакета.
 5. Адреса Selectel в `mirrors.yml` (endpoint `s3.storage.selcloud.ru`, регион `ru-1`, публичный домен) подтвердить при создании
    бакета. Если URL изменились, поправить `mirrors.yml` и `mirrors` в манифестах и переподписать `dist/`.

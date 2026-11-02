@@ -19,6 +19,7 @@ GIT = {
     "type": "git",
     "push_url": "git@h:o/r.git",
     "branch": "master",
+    "known_hosts": "known_hosts",
     "public_url": "https://p/dist/",
     "credentials": "G",
 }
@@ -27,6 +28,7 @@ GIT = {
 def load(tmp_path, targets):
     path = tmp_path / "mirrors.yml"
     path.write_text(yaml.safe_dump({"targets": targets}))
+    (tmp_path / "known_hosts").write_text("github.com ssh-ed25519 AAAA\n")
     return mirrors.load(path)
 
 
@@ -56,6 +58,8 @@ def test_empty_prefix_is_allowed(tmp_path):
         ([{**S3, "type": "ftp"}], "type must be one of"),
         ([{k: v for k, v in S3.items() if k != "bucket"}], "bucket"),
         ([{k: v for k, v in GIT.items() if k != "push_url"}], "push_url"),
+        ([{k: v for k, v in GIT.items() if k != "known_hosts"}], "known_hosts"),
+        ([{**GIT, "known_hosts": "missing_file"}], "known_hosts file"),
         ([{**S3, "public_url": "https://p/v1"}], "must end with '/'"),
         ([], "non-empty list"),
     ],

@@ -19,5 +19,6 @@ targets:
     type: git
     push_url: git@github.com:konsierge/bootstrap.git
     branch: master
+    known_hosts: known_hosts   # SSH host keys of github.com, see README
     public_url: https://raw.githubusercontent.com/konsierge/bootstrap/master/dist/
     credentials: GITHUB        # BOOTSTRAP_GITHUB_DEPLOY_KEY: path to a private SSH deploy key with write access

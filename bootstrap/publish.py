@@ -5,6 +5,7 @@ import os
 import shlex
 import subprocess
 import sys
+import tempfile
 import time
 from collections.abc import Callable, Mapping, MutableMapping
 from dataclasses import dataclass
@@ -181,17 +182,35 @@ def _write_git(ctx: Context, target: Target, key_path: str, plans: list[Plan]) -
     problem = _git_precheck(ctx)
     if problem:
         return [f"error: {problem}"] * len(plans)
-    environ = {
-        **ctx.environ,
-        "GIT_SSH_COMMAND": f"ssh -i {shlex.quote(key_path)} -o IdentitiesOnly=yes",
-    }
-    pushed = ctx.runner(
-        ["git", "push", target.push_url, f"HEAD:refs/heads/{target.branch}"],
-        env=environ,
-        cwd=ctx.root,
-    )
+    try:
+        key = Path(key_path).read_bytes()
+    except OSError:
+        return ["error: deploy_key_unreadable"] * len(plans)
+    # A copy with mode 0600: ssh refuses keys that are group/world readable.
+    fd, copy = tempfile.mkstemp(prefix="bootstrap-deploy-key-")
+    try:
+        with os.fdopen(fd, "wb") as handle:
+            handle.write(key if key.endswith(b"\n") else key + b"\n")
+        ssh = [
+            "ssh",
+            *("-i", copy),
+            *("-o", "IdentitiesOnly=yes"),
+            *("-o", f"UserKnownHostsFile={ctx.root / target.known_hosts}"),
+            *("-o", "StrictHostKeyChecking=yes"),
+            *("-o", "BatchMode=yes"),
+        ]
+        pushed = ctx.runner(
+            ["git", "push", target.push_url, f"HEAD:refs/heads/{target.branch}"],
+            env={**ctx.environ, "GIT_SSH_COMMAND": shlex.join(ssh)},
+            cwd=ctx.root,
+        )
+    finally:
+        os.unlink(copy)
     if pushed.returncode != 0:
-        return ["error: push_failed"] * len(plans)
+        lines = [line for line in (pushed.stderr or "").splitlines() if line.strip()]
+        return [
+            f"error: push_failed: {lines[-1].strip()}" if lines else "error: push_failed"
+        ] * len(plans)
     return [
         "ok" if _verified(target, plan, ctx, GIT_VERIFY_ATTEMPTS) else "warning: stale_cache"
         for plan in plans
@@ -248,9 +267,6 @@ def run(
     now: datetime | None = None,
 ) -> list[Row]:
     now = now or datetime.now(UTC)
-    problems = [f"{r.name}: {r.error}" for r in check.run(root=root, now=now) if r.error]
-    if problems:
-        raise CommandError("check_failed", "; ".join(problems))
     unknown = sorted(set(target_names) - {t.name for t in targets})
     if unknown:
         raise CommandError("unknown_target", ", ".join(unknown))

@@ -214,6 +214,7 @@ JWK в stdin `age -p -o <путь>`, после успеха `age` пишет `k
 | `tampered_payload` | `valid` с изменённым байтом payload (base64url остаётся валидным) | `bad_signature` |
 | `foreign_key` | подписан чужим ключом, `kid` = `prod-9999a` | `bad_signature` |
 | `unknown_kid` | подписан чужим ключом с `kid` = `prod-9999z` | `unknown_key` |
+| `alg_none` | подпись `prod-9999a` с protected header `{"alg":"none","kid":"prod-9999a"}` | `unknown_key` |
 | `rollback` | валидный `version: 5`, `stored_version: 6` | `rollback` |
 | `wrong_env` | payload `env: staging`, подписан `prod-9999a`, проверка как production | `env_mismatch` |
 | `staging_key_in_prod` | staging-манифест, подписан `stage-9999a`, проверка как production | `unknown_key` |

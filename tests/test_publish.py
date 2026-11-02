@@ -1,13 +1,15 @@
+import shlex
 import subprocess
 from pathlib import Path
 
 import boto3
+import botocore.exceptions
 import httpx
 import pytest
 import yaml
 from moto import mock_aws
 
-from bootstrap import publish
+from bootstrap import check, publish
 from bootstrap.errors import CommandError
 from bootstrap.mirrors import Target
 from tests.conftest import Repo
@@ -18,7 +20,7 @@ S3_ENV = {
     "BOOTSTRAP_YANDEX_ACCESS_KEY_ID": "key",
     "BOOTSTRAP_YANDEX_SECRET_ACCESS_KEY": "secret",
 }
-GIT_ENV = {"BOOTSTRAP_GITHUB_DEPLOY_KEY": "/keys/deploy"}
+DEPLOY_KEY = b"-----BEGIN OPENSSH PRIVATE KEY-----\nsecret\n-----END OPENSSH PRIVATE KEY-----"
 BOTH_ENVS = ("production", "staging")
 
 S3_TARGET = Target(
@@ -38,17 +40,35 @@ GIT_TARGET = Target(
     credentials="GITHUB",
     push_url="git@example.com:o/r.git",
     branch="master",
+    known_hosts="known_hosts",
 )
 
 
 class FakeRunner:
-    def __init__(self, returncode: int = 0):
+    def __init__(self, returncode: int = 0, stderr: str = "rejected"):
         self.returncode = returncode
+        self.stderr = stderr
         self.calls: list[tuple[list[str], dict, Path]] = []
+        self.ssh: list[str] = []
+        self.key_mode: int | None = None
+        self.key_content: bytes | None = None
 
     def __call__(self, command, *, env, cwd):
         self.calls.append((command, env, cwd))
-        return subprocess.CompletedProcess(command, self.returncode, "", "rejected")
+        if "GIT_SSH_COMMAND" in env:
+            self.ssh = shlex.split(env["GIT_SSH_COMMAND"])
+            key = Path(self.ssh[self.ssh.index("-i") + 1])
+            self.key_mode = key.stat().st_mode & 0o777
+            self.key_content = key.read_bytes()
+        return subprocess.CompletedProcess(command, self.returncode, "", self.stderr)
+
+
+@pytest.fixture
+def git_env(tmp_path: Path) -> dict[str, str]:
+    key = tmp_path / "deploy-key"
+    key.write_bytes(DEPLOY_KEY)
+    key.chmod(0o644)  # GitLab File variables are not guaranteed to be 0600
+    return {"BOOTSTRAP_GITHUB_DEPLOY_KEY": str(key)}
 
 
 @pytest.fixture
@@ -180,10 +200,10 @@ def test_other_targets_still_publish_after_a_target_error(signed, s3, respx_mock
     assert publish.failed(rows)
 
 
-def test_unreachable_mirror_is_an_error_when_publishing(signed, respx_mock):
+def test_unreachable_mirror_is_an_error_when_publishing(signed, respx_mock, git_env):
     respx_mock.get(f"{GIT_PUBLIC}production.jws").mock(side_effect=httpx.ConnectError("down"))
 
-    rows = run(signed, [GIT_TARGET], environ=GIT_ENV, envs=("production",))
+    rows = run(signed, [GIT_TARGET], environ=git_env, envs=("production",))
 
     assert rows_of(rows) == [("github", "production", "upload", "error: unreachable")]
 
@@ -235,7 +255,7 @@ def test_post_write_mismatch_is_an_error(signed, s3, respx_mock):
     assert rows_of(rows) == [("yandex", "production", "upload", "error: verify_failed")]
 
 
-def test_git_push_publishes_all_envs_without_force(signed, respx_mock):
+def test_git_push_publishes_all_envs_without_force(signed, respx_mock, git_env):
     runner = FakeRunner()
     bodies = {env: signed.dist_path(env).read_bytes() for env in BOTH_ENVS}
     state = {env: 0 for env in BOTH_ENVS}
@@ -248,54 +268,163 @@ def test_git_push_publishes_all_envs_without_force(signed, respx_mock):
         respx_mock.get(f"{GIT_PUBLIC}{env}.jws").mock(side_effect=respond)
     sleeps: list[float] = []
 
-    rows = run(signed, [GIT_TARGET], runner=runner, sleeps=sleeps, environ=GIT_ENV)
+    rows = run(signed, [GIT_TARGET], runner=runner, sleeps=sleeps, environ=git_env)
 
     assert [r.result for r in rows] == ["ok", "ok"]
     ((command, env, cwd),) = runner.calls
     assert command == ["git", "push", "git@example.com:o/r.git", "HEAD:refs/heads/master"]
-    assert env["GIT_SSH_COMMAND"] == "ssh -i /keys/deploy -o IdentitiesOnly=yes"
+    assert runner.ssh[0] == "ssh"
+    assert runner.ssh[-8:] == [
+        "-o",
+        "IdentitiesOnly=yes",
+        "-o",
+        f"UserKnownHostsFile={signed.root / 'known_hosts'}",
+        "-o",
+        "StrictHostKeyChecking=yes",
+        "-o",
+        "BatchMode=yes",
+    ]
+    assert runner.key_mode == 0o600
+    assert runner.key_content == DEPLOY_KEY + b"\n"
+    assert not Path(runner.ssh[runner.ssh.index("-i") + 1]).exists()
     assert cwd == signed.root
     assert sleeps == [30, 30]
 
 
-def test_git_stale_cache_is_a_warning(signed, respx_mock):
+def test_git_stale_cache_is_a_warning(signed, respx_mock, git_env):
     respx_mock.get(url__startswith=GIT_PUBLIC).respond(404)
     sleeps: list[float] = []
 
-    rows = run(signed, [GIT_TARGET], sleeps=sleeps, environ=GIT_ENV, envs=("production",))
+    rows = run(signed, [GIT_TARGET], sleeps=sleeps, environ=git_env, envs=("production",))
 
     assert rows_of(rows) == [("github", "production", "upload", "warning: stale_cache")]
     assert sleeps == [30] * 9
     assert not publish.failed(rows)
 
 
-def test_git_requires_clean_dist(signed, respx_mock):
+def test_git_requires_clean_dist(signed, respx_mock, git_env):
     runner = FakeRunner()
     respx_mock.get(url__startswith=GIT_PUBLIC).respond(404)
     (signed.root / "dist" / "extra.txt").write_text("untracked")
 
-    rows = run(signed, [GIT_TARGET], runner=runner, environ=GIT_ENV)
+    rows = run(signed, [GIT_TARGET], runner=runner, environ=git_env)
 
     assert {r.result for r in rows} == {"error: dist_dirty"}
     assert runner.calls == []
 
 
-def test_git_push_failure_is_an_error(signed, respx_mock):
+def test_git_push_failure_is_an_error(signed, respx_mock, git_env):
     respx_mock.get(url__startswith=GIT_PUBLIC).respond(404)
 
-    rows = run(signed, [GIT_TARGET], runner=FakeRunner(1), environ=GIT_ENV)
+    rows = run(signed, [GIT_TARGET], runner=FakeRunner(1), environ=git_env)
 
-    assert {r.result for r in rows} == {"error: push_failed"}
+    assert {r.result for r in rows} == {"error: push_failed: rejected"}
+    assert publish.failed(rows)
 
 
-def test_git_unchanged_does_not_push(signed, respx_mock):
+def test_git_push_failure_reports_last_stderr_line(signed, respx_mock, git_env):
+    respx_mock.get(url__startswith=GIT_PUBLIC).respond(404)
+    runner = FakeRunner(1, "remote: hint\nHost key verification failed.\n\n")
+
+    rows = run(signed, [GIT_TARGET], runner=runner, environ=git_env, envs=("production",))
+
+    assert rows_of(rows) == [
+        ("github", "production", "upload", "error: push_failed: Host key verification failed.")
+    ]
+
+
+def test_git_requires_committed_dist(repo, respx_mock, git_env):
+    runner = FakeRunner()
+    respx_mock.get(url__startswith=GIT_PUBLIC).respond(404)
+    repo.commit("without dist")
+    repo.sign_all()
+    (repo.root / ".git" / "info" / "exclude").write_text("dist/*.jws\n")
+
+    rows = run(repo, [GIT_TARGET], runner=runner, environ=git_env, envs=("production",))
+
+    assert {r.result for r in rows} == {"error: dist_not_committed"}
+    assert runner.calls == []
+
+
+def test_unknown_target_is_an_error(signed):
+    with pytest.raises(CommandError) as raised:
+        run(signed, [S3_TARGET], target_names=("nope",))
+
+    assert raised.value.code == "unknown_target"
+
+
+def test_s3_write_failure_is_an_error(signed, s3, respx_mock):
+    respx_mock.get(url__startswith=PUBLIC).respond(404)
+
+    def refuse(**kwargs):
+        raise botocore.exceptions.ClientError({"Error": {"Code": "AccessDenied"}}, "PutObject")
+
+    s3.put_object = refuse
+
+    rows = run(signed, [S3_TARGET], s3=s3, environ=S3_ENV, envs=("production",))
+
+    assert rows_of(rows) == [("yandex", "production", "upload", "error: write_failed")]
+    assert publish.failed(rows)
+
+
+def test_main_runs_check_once_before_secrets(signed, tmp_path, monkeypatch, capsys):
+    calls = []
+    original = check.run
+    monkeypatch.setattr(check, "run", lambda **kw: calls.append(kw) or original(**kw))
+    signed.age.broken = True
+
+    code = publish.main(
+        ["--dry-run", "--secrets", str(tmp_path / "x.age")],
+        root=signed.root,
+        mirrors_path=write_mirrors(tmp_path / "mirrors.yml"),
+        age=signed.age,
+        environ={},
+    )
+
+    assert code == 1
+    assert "secrets_unreadable" in capsys.readouterr().err
+    assert len(calls) == 1
+
+
+def test_main_runs_check_exactly_once(signed, tmp_path, respx_mock, monkeypatch):
+    calls = []
+    original = check.run
+    monkeypatch.setattr(check, "run", lambda **kw: calls.append(kw) or original(**kw))
+    respx_mock.get(url__startswith=PUBLIC).respond(404)
+
+    publish.main(
+        ["--dry-run"],
+        root=signed.root,
+        mirrors_path=write_mirrors(tmp_path / "mirrors.yml"),
+        environ={},
+    )
+
+    assert len(calls) == 1
+
+
+def test_main_check_failure_stops_before_secrets(repo, tmp_path, capsys):
+    repo.age.broken = True
+
+    code = publish.main(
+        ["--secrets", str(tmp_path / "x.age")],
+        root=repo.root,
+        mirrors_path=write_mirrors(tmp_path / "mirrors.yml"),
+        age=repo.age,
+        environ={},
+    )
+
+    assert code == 1
+    assert "check_failed" in capsys.readouterr().err
+
+
+def test_git_unchanged_does_not_push(signed, respx_mock, git_env):
     runner = FakeRunner()
     for env in BOTH_ENVS:
         respx_mock.get(f"{GIT_PUBLIC}{env}.jws").respond(
             200, content=signed.dist_path(env).read_bytes()
         )
 
-    rows = run(signed, [GIT_TARGET], runner=runner, environ=GIT_ENV)
+    rows = run(signed, [GIT_TARGET], runner=runner, environ=git_env)
 
     assert [r.action for r in rows] == ["unchanged", "unchanged"]
     assert runner.calls == []
@@ -313,14 +442,6 @@ def test_filters_select_target_and_env(signed, s3, respx_mock):
     )
 
     assert rows_of(rows) == [("yandex", "staging", "upload", "planned")]
-
-
-def test_check_failure_stops_publishing(repo, s3):
-    with pytest.raises(CommandError) as raised:
-        run(repo, [S3_TARGET], s3=s3, environ=S3_ENV)
-
-    assert raised.value.code == "check_failed"
-    assert objects(s3) == []
 
 
 def test_parse_dotenv():
