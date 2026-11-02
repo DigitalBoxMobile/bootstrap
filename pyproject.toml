@@ -12,13 +12,13 @@ dependencies = [
 ]
 
 [project.scripts]
-check = "bootstrap.check:main"
-check-mirrors = "bootstrap.check_mirrors:main"
-gen-testdata = "bootstrap.gen_testdata:main"
-keygen = "bootstrap.keygen:main"
-publish = "bootstrap.publish:main"
-sign = "bootstrap.sign:main"
-verify = "bootstrap.verify:main"
+bootstrap-check = "bootstrap.check:main"
+bootstrap-check-mirrors = "bootstrap.check_mirrors:main"
+bootstrap-gen-testdata = "bootstrap.gen_testdata:main"
+bootstrap-keygen = "bootstrap.keygen:main"
+bootstrap-publish = "bootstrap.publish:main"
+bootstrap-sign = "bootstrap.sign:main"
+bootstrap-verify = "bootstrap.verify:main"
 
 [build-system]
 requires = ["uv_build>=0.11.16,<0.12"]
