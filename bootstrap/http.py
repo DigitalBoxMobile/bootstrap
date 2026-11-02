@@ -24,7 +24,14 @@ class Response:
 def get(url: str, *, timeout: float = DEFAULT_TIMEOUT) -> Response:
     """Bodies over MAX_BODY_BYTES yield a status-less response with `oversized` set."""
     try:
-        with httpx.stream("GET", url, timeout=timeout, follow_redirects=True) as response:
+        # identity keeps the limit on decoded bytes: gzip could expand a small block enormously
+        with httpx.stream(
+            "GET",
+            url,
+            headers={"Accept-Encoding": "identity"},
+            timeout=timeout,
+            follow_redirects=True,
+        ) as response:
             body = bytearray()
             for chunk in response.iter_bytes():
                 body += chunk

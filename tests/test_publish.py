@@ -688,3 +688,14 @@ def test_unexpected_exception_becomes_row_error(signed, s3, respx_mock, monkeypa
     assert len(rows) == 2
     assert rows[0].result == "error: internal_error: ValueError"
     assert publish.failed(rows)
+
+
+def test_oversized_mirror_response_is_reported_as_oversized(signed, respx_mock, git_env):
+    respx_mock.get(f"{GIT_PUBLIC}production.jws").respond(200, content=b"a" * 70000)
+    respx_mock.get(f"{GIT_PUBLIC}staging.jws").respond(
+        200, content=signed.dist_path("staging").read_bytes()
+    )
+
+    rows = run(signed, [GIT_TARGET], environ=git_env, envs=("production",))
+
+    assert rows_of(rows) == [("github", "production", "upload", "error: oversized")]

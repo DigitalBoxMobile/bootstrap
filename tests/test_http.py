@@ -28,3 +28,11 @@ def test_body_at_limit_is_returned(respx_mock):
     assert not response.oversized
     assert response.status == 200
     assert len(response.body) == 65536
+
+
+def test_request_asks_for_identity_encoding(respx_mock):
+    route = respx_mock.get("https://example.com/x").respond(200, content=b"ok")
+
+    http.get("https://example.com/x")
+
+    assert route.calls.last.request.headers["Accept-Encoding"] == "identity"

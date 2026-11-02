@@ -107,6 +107,8 @@ def _read_remote(
         except BotoCoreError:
             return None, "unreachable", None
     response = http_module.get(target.public_file_url(env))
+    if response.oversized:
+        return None, "oversized", None
     if response.unreachable:
         return None, "unreachable", None
     if response.status == 200:

@@ -128,6 +128,20 @@ def test_sign_rejects_schema_violation(repo):
     assert not repo.dist_path("production").exists()
 
 
+def test_sign_overwrites_impossible_dates_so_they_never_reach_validation(repo):
+    # sign regenerates issued_at/expires_at from `now` before validating, so an impossible
+    # calendar date in the file cannot reach schema_errors; the date check itself is
+    # exercised at the verification boundary (contract/manifest tests).
+    manifest = repo.read_manifest("production")
+    manifest["issued_at"] = "2026-02-30T12:00:00Z"
+    repo.write_manifest("production", manifest)
+
+    repo.sign("production", ["prod-2026a"])
+
+    assert repo.read_manifest("production")["issued_at"] == "2026-11-02T12:00:00Z"
+    assert accepted(repo, "production").accepted
+
+
 def test_sign_rejects_oversized_file_and_keeps_dist(repo):
     repo.sign("production", ["prod-2026a"])
     signed = repo.dist_path("production").read_bytes()
