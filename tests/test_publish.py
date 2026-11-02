@@ -202,6 +202,9 @@ def test_other_targets_still_publish_after_a_target_error(signed, s3, respx_mock
 
 def test_unreachable_mirror_is_an_error_when_publishing(signed, respx_mock, git_env):
     respx_mock.get(f"{GIT_PUBLIC}production.jws").mock(side_effect=httpx.ConnectError("down"))
+    respx_mock.get(f"{GIT_PUBLIC}staging.jws").respond(
+        200, content=signed.dist_path("staging").read_bytes()
+    )
 
     rows = run(signed, [GIT_TARGET], environ=git_env, envs=("production",))
 
@@ -295,10 +298,10 @@ def test_git_stale_cache_is_a_warning(signed, respx_mock, git_env):
     respx_mock.get(url__startswith=GIT_PUBLIC).respond(404)
     sleeps: list[float] = []
 
-    rows = run(signed, [GIT_TARGET], sleeps=sleeps, environ=git_env, envs=("production",))
+    rows = run(signed, [GIT_TARGET], sleeps=sleeps, environ=git_env)
 
-    assert rows_of(rows) == [("github", "production", "upload", "warning: stale_cache")]
-    assert sleeps == [30] * 9
+    assert [r.result for r in rows] == ["warning: stale_cache"] * 2
+    assert sleeps == [30] * 18
     assert not publish.failed(rows)
 
 
@@ -326,11 +329,9 @@ def test_git_push_failure_reports_last_stderr_line(signed, respx_mock, git_env):
     respx_mock.get(url__startswith=GIT_PUBLIC).respond(404)
     runner = FakeRunner(1, "remote: hint\nHost key verification failed.\n\n")
 
-    rows = run(signed, [GIT_TARGET], runner=runner, environ=git_env, envs=("production",))
+    rows = run(signed, [GIT_TARGET], runner=runner, environ=git_env)
 
-    assert rows_of(rows) == [
-        ("github", "production", "upload", "error: push_failed: Host key verification failed.")
-    ]
+    assert {r.result for r in rows} == {"error: push_failed: Host key verification failed."}
 
 
 def test_git_requires_committed_dist(repo, respx_mock, git_env):
@@ -340,7 +341,7 @@ def test_git_requires_committed_dist(repo, respx_mock, git_env):
     repo.sign_all()
     (repo.root / ".git" / "info" / "exclude").write_text("dist/*.jws\n")
 
-    rows = run(repo, [GIT_TARGET], runner=runner, environ=git_env, envs=("production",))
+    rows = run(repo, [GIT_TARGET], runner=runner, environ=git_env)
 
     assert {r.result for r in rows} == {"error: dist_not_committed"}
     assert runner.calls == []
@@ -523,3 +524,167 @@ def test_main_secrets_failure_is_reported(signed, tmp_path, capsys):
 
     assert code == 1
     assert "secrets_unreadable" in capsys.readouterr().err
+
+
+def bump_version(repo: Repo, version: int) -> None:
+    for env, kid in (("production", "prod-2026a"), ("staging", "stage-2026a")):
+        repo.write_manifest(env, {**repo.read_manifest(env), "version": version})
+        repo.sign(env, [kid])
+    repo.commit(f"v{version}")
+
+
+@pytest.fixture
+def bare_mirror(signed, tmp_path, respx_mock):
+    """A local bare repo holding v1 of both envs, served over HTTP; the work repo is at v2."""
+    bare = tmp_path / "mirror.git"
+    subprocess.run(["git", "init", "-q", "--bare", str(bare)], check=True)
+    signed.git("push", "-q", str(bare), "HEAD:refs/heads/master")
+    bump_version(signed, 2)
+
+    def show(env: str) -> bytes:
+        return subprocess.run(
+            ["git", "-C", str(bare), "show", f"master:dist/{env}.jws"],
+            capture_output=True,
+            check=True,
+        ).stdout
+
+    def head() -> str:
+        return subprocess.run(
+            ["git", "-C", str(bare), "rev-parse", "master"],
+            capture_output=True,
+            text=True,
+            check=True,
+        ).stdout.strip()
+
+    for env in BOTH_ENVS:
+        respx_mock.get(f"{GIT_PUBLIC}{env}.jws").mock(
+            side_effect=lambda request, env=env: httpx.Response(200, content=show(env))
+        )
+    target = Target(**{**vars(GIT_TARGET), "push_url": str(bare)})
+    return target, head, show
+
+
+def test_git_env_filter_conflict_blocks_push(signed, bare_mirror, git_env):
+    target, head, _ = bare_mirror
+    before = head()
+    runner = FakeRunner()
+
+    rows = run(signed, [target], runner=runner, environ=git_env, envs=("staging",))
+
+    assert rows_of(rows) == [
+        ("github", "production", "upload", "error: env_filter_conflict"),
+        ("github", "staging", "upload", "error: env_filter_conflict"),
+    ]
+    assert runner.calls == []
+    assert head() == before
+    assert publish.failed(rows)
+
+
+def test_git_without_env_filter_pushes_all(signed, bare_mirror, git_env):
+    target, _, show = bare_mirror
+
+    rows = run(signed, [target], runner=publish._run_command, environ=git_env)
+
+    assert rows_of(rows) == [
+        ("github", "production", "upload", "ok"),
+        ("github", "staging", "upload", "ok"),
+    ]
+    assert show("production") == signed.dist_path("production").read_bytes()
+    assert show("staging") == signed.dist_path("staging").read_bytes()
+
+
+def test_git_env_filter_without_other_differences_pushes(signed, respx_mock, git_env):
+    runner = FakeRunner()
+    respx_mock.get(f"{GIT_PUBLIC}production.jws").respond(404)
+    respx_mock.get(f"{GIT_PUBLIC}staging.jws").respond(
+        200, content=signed.dist_path("staging").read_bytes()
+    )
+
+    rows = run(signed, [GIT_TARGET], runner=runner, environ=git_env, envs=("production",))
+
+    assert rows_of(rows) == [("github", "production", "upload", "warning: stale_cache")]
+    assert len(runner.calls) == 1
+
+
+def test_git_rollback_refused_on_unselected_env_cancels_push(repo, respx_mock, git_env):
+    runner = FakeRunner()
+    newer = newer_remote_older_local(repo)
+    respx_mock.get(f"{GIT_PUBLIC}production.jws").respond(200, content=newer)
+    respx_mock.get(f"{GIT_PUBLIC}staging.jws").respond(404)
+
+    rows = run(repo, [GIT_TARGET], runner=runner, environ=git_env, envs=("staging",))
+
+    assert runner.calls == []
+    assert "error: rollback_refused" in [r.result for r in rows]
+    assert publish.failed(rows)
+
+
+class RacingS3:
+    """Delegates to a real client but lets a concurrent writer act right before put_object."""
+
+    def __init__(self, client, before_put):
+        self.client = client
+        self.before_put = before_put
+
+    def __getattr__(self, name):
+        return getattr(self.client, name)
+
+    def put_object(self, **kwargs):
+        self.before_put(kwargs["Key"])
+        return self.client.put_object(**kwargs)
+
+
+def test_s3_write_conflict_when_object_replaced_after_preflight(signed, s3, respx_mock):
+    key = "v1/production.jws"
+    s3.put_object(Bucket="bucket", Key=key, Body=b"v1-old")
+    racing = RacingS3(s3, lambda k: s3.put_object(Bucket="bucket", Key=k, Body=b"v3-other"))
+
+    rows = run(signed, [S3_TARGET], s3=racing, environ=S3_ENV, envs=("production",))
+
+    assert rows_of(rows) == [("yandex", "production", "upload", "error: conflict")]
+    assert s3.get_object(Bucket="bucket", Key=key)["Body"].read() == b"v3-other"
+    assert publish.failed(rows)
+
+
+def test_s3_write_conflict_when_new_object_created_after_preflight(signed, s3, respx_mock):
+    key = "v1/production.jws"
+    racing = RacingS3(s3, lambda k: s3.put_object(Bucket="bucket", Key=k, Body=b"v3-other"))
+
+    rows = run(signed, [S3_TARGET], s3=racing, environ=S3_ENV, envs=("production",))
+
+    assert rows_of(rows) == [("yandex", "production", "upload", "error: conflict")]
+    assert s3.get_object(Bucket="bucket", Key=key)["Body"].read() == b"v3-other"
+
+
+def test_s3_conflict_does_not_stop_other_envs(signed, s3, respx_mock):
+    def race(key):
+        if key.endswith("production.jws"):
+            s3.put_object(Bucket="bucket", Key=key, Body=b"other")
+
+    for env in BOTH_ENVS:
+        respx_mock.get(f"{PUBLIC}{env}.jws").respond(
+            200, content=signed.dist_path(env).read_bytes()
+        )
+
+    rows = run(signed, [S3_TARGET], s3=RacingS3(s3, race), environ=S3_ENV)
+
+    assert [r.result for r in rows] == ["error: conflict", "ok"]
+
+
+def test_unexpected_exception_becomes_row_error(signed, s3, respx_mock, monkeypatch):
+    real = publish.contract.evaluate
+
+    def boom(remote, *, env, **kwargs):
+        if env == "production":
+            raise ValueError("boom")
+        return real(remote, env=env, **kwargs)
+
+    monkeypatch.setattr(publish.contract, "evaluate", boom)
+    for env in BOTH_ENVS:
+        s3.put_object(Bucket="bucket", Key=f"v1/{env}.jws", Body=b"old")
+
+    rows = run(signed, [S3_TARGET], s3=s3, environ=S3_ENV)
+
+    assert len(rows) == 2
+    assert rows[0].result == "error: internal_error: ValueError"
+    assert publish.failed(rows)

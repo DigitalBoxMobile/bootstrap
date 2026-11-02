@@ -44,6 +44,7 @@ class Plan:
     local: bytes
     action: str  # unchanged | upload | rollback_refused
     problem: str | None = None  # remote could not be read
+    etag: str | None = None  # s3 ETag read at preflight; None when the object was absent
 
 
 def failed(rows: list[Row]) -> bool:
@@ -91,32 +92,41 @@ def _credentials(ctx: Context, target: Target):
 _S3_VARS = ("ACCESS_KEY_ID", "SECRET_ACCESS_KEY")
 
 
-def _read_remote(ctx: Context, target: Target, env: str, client) -> tuple[bytes | None, str | None]:
-    """(bytes, None) | (None, None) when absent | (None, problem code) when unreadable."""
+def _read_remote(
+    ctx: Context, target: Target, env: str, client
+) -> tuple[bytes | None, str | None, str | None]:
+    """(bytes, None, etag) | (None, None, None) when absent | (None, problem code, None)."""
     if client is not None:
         try:
-            return client.get_object(Bucket=target.bucket, Key=target.object_key(env))[
-                "Body"
-            ].read(), None
+            found = client.get_object(Bucket=target.bucket, Key=target.object_key(env))
+            return found["Body"].read(), None, found.get("ETag")
         except ClientError as error:
             if error.response.get("Error", {}).get("Code") in ("NoSuchKey", "404"):
-                return None, None
-            return None, "read_failed"
+                return None, None, None
+            return None, "read_failed", None
         except BotoCoreError:
-            return None, "unreachable"
+            return None, "unreachable", None
     response = http_module.get(target.public_file_url(env))
     if response.unreachable:
-        return None, "unreachable"
+        return None, "unreachable", None
     if response.status == 200:
-        return response.body, None
+        return response.body, None, None
     if response.status == 404:
-        return None, None
-    return None, "http_error"
+        return None, None, None
+    return None, "http_error", None
 
 
 def _plan(ctx: Context, target: Target, env: str, client) -> Plan:
+    """Never raises: an unexpected exception becomes the plan's `internal_error` problem."""
+    try:
+        return _build_plan(ctx, target, env, client)
+    except Exception as error:
+        return Plan(env, b"", "upload", f"internal_error: {type(error).__name__}")
+
+
+def _build_plan(ctx: Context, target: Target, env: str, client) -> Plan:
     local = (ctx.root / "dist" / f"{env}.jws").read_bytes()
-    remote, problem = _read_remote(ctx, target, env, client)
+    remote, problem, etag = _read_remote(ctx, target, env, client)
     if problem:
         return Plan(env, local, "upload", problem)
     if remote == local:
@@ -132,7 +142,7 @@ def _plan(ctx: Context, target: Target, env: str, client) -> Plan:
             local
         ):
             return Plan(env, local, "rollback_refused")
-    return Plan(env, local, "upload")
+    return Plan(env, local, "upload", etag=etag)
 
 
 def _verified(target: Target, plan: Plan, ctx: Context, attempts: int) -> bool:
@@ -146,6 +156,7 @@ def _verified(target: Target, plan: Plan, ctx: Context, attempts: int) -> bool:
 
 
 def _write_s3(ctx: Context, target: Target, client, plan: Plan) -> str:
+    condition = {"IfMatch": plan.etag} if plan.etag else {"IfNoneMatch": "*"}
     try:
         client.put_object(
             Bucket=target.bucket,
@@ -153,8 +164,15 @@ def _write_s3(ctx: Context, target: Target, client, plan: Plan) -> str:
             Body=plan.local,
             ContentType=CONTENT_TYPE,
             CacheControl=CACHE_CONTROL,
+            **condition,
         )
-    except (BotoCoreError, ClientError):
+    except ClientError as error:
+        code = str(error.response.get("Error", {}).get("Code"))
+        status = error.response.get("ResponseMetadata", {}).get("HTTPStatusCode")
+        if code == "PreconditionFailed" or status == 412:
+            return "error: conflict"
+        return "error: write_failed"
+    except BotoCoreError:
         return "error: write_failed"
     return "ok" if _verified(target, plan, ctx, attempts=1) else "error: verify_failed"
 
@@ -168,7 +186,7 @@ def _git_precheck(ctx: Context) -> str | None:
     )
     if status.returncode != 0 or status.stdout.strip():
         return "dist_dirty"
-    for env in ctx.envs:
+    for env in ENVS:
         if (
             check._git_blob(ctx.root, "HEAD", f"dist/{env}.jws")
             != (ctx.root / "dist" / f"{env}.jws").read_bytes()
@@ -222,12 +240,31 @@ def _publish_target(ctx: Context, target: Target) -> list[Row]:
     if credentials is None and not ctx.dry_run:
         return [Row(target.name, env, "-", "error: missing_credentials") for env in ctx.envs]
     client = ctx.s3_factory(target, *credentials) if target.type == "s3" and credentials else None
-    plans = [_plan(ctx, target, env, client) for env in ctx.envs]
+    # A git push publishes the whole HEAD, so every env is checked whatever --env says.
+    envs = ENVS if target.type == "git" else ctx.envs
+    plans = [_plan(ctx, target, env, client) for env in envs]
+    selected = set(ctx.envs)
 
     def error_of(plan: Plan) -> str | None:
         if plan.action == "rollback_refused":
             return "rollback_refused"
+        if plan.problem and plan.problem.startswith("internal_error"):
+            return plan.problem
         return None if ctx.dry_run else plan.problem
+
+    if target.type == "git":
+        hidden_change = any(
+            p.env not in selected and p.action == "upload" and not p.problem for p in plans
+        )
+        if hidden_change and not any(error_of(p) for p in plans):
+            return [
+                Row(target.name, p.env, p.action, "error: env_filter_conflict")
+                if p.action == "upload"
+                else Row(target.name, p.env, p.action, "ok")
+                for p in plans
+                if p.env in selected or p.action != "unchanged"
+            ]
+        plans = [p for p in plans if p.env in selected or p.action != "unchanged"]
 
     if any(error_of(plan) for plan in plans):
         return [
