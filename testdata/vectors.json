@@ -1,0 +1,187 @@
+[
+  {
+    "name": "valid",
+    "file": "valid.jws",
+    "env": "production",
+    "trusted_kids": [
+      "prod-9999a"
+    ],
+    "stored_version": 0,
+    "now": "2026-11-02T12:00:00Z",
+    "expect": {
+      "accepted": true,
+      "version": 3,
+      "expired": false
+    }
+  },
+  {
+    "name": "tampered_payload",
+    "file": "tampered_payload.jws",
+    "env": "production",
+    "trusted_kids": [
+      "prod-9999a"
+    ],
+    "stored_version": 0,
+    "now": "2026-11-02T12:00:00Z",
+    "expect": {
+      "accepted": false,
+      "reason": "bad_signature"
+    }
+  },
+  {
+    "name": "foreign_key",
+    "file": "foreign_key.jws",
+    "env": "production",
+    "trusted_kids": [
+      "prod-9999a"
+    ],
+    "stored_version": 0,
+    "now": "2026-11-02T12:00:00Z",
+    "expect": {
+      "accepted": false,
+      "reason": "bad_signature"
+    }
+  },
+  {
+    "name": "unknown_kid",
+    "file": "unknown_kid.jws",
+    "env": "production",
+    "trusted_kids": [
+      "prod-9999a"
+    ],
+    "stored_version": 0,
+    "now": "2026-11-02T12:00:00Z",
+    "expect": {
+      "accepted": false,
+      "reason": "unknown_key"
+    }
+  },
+  {
+    "name": "alg_none",
+    "file": "alg_none.jws",
+    "env": "production",
+    "trusted_kids": [
+      "prod-9999a"
+    ],
+    "stored_version": 0,
+    "now": "2026-11-02T12:00:00Z",
+    "expect": {
+      "accepted": false,
+      "reason": "unknown_key"
+    }
+  },
+  {
+    "name": "rollback",
+    "file": "rollback.jws",
+    "env": "production",
+    "trusted_kids": [
+      "prod-9999a"
+    ],
+    "stored_version": 6,
+    "now": "2026-11-02T12:00:00Z",
+    "expect": {
+      "accepted": false,
+      "reason": "rollback"
+    }
+  },
+  {
+    "name": "wrong_env",
+    "file": "wrong_env.jws",
+    "env": "production",
+    "trusted_kids": [
+      "prod-9999a"
+    ],
+    "stored_version": 0,
+    "now": "2026-11-02T12:00:00Z",
+    "expect": {
+      "accepted": false,
+      "reason": "env_mismatch"
+    }
+  },
+  {
+    "name": "staging_key_in_prod",
+    "file": "staging_key_in_prod.jws",
+    "env": "production",
+    "trusted_kids": [
+      "prod-9999a"
+    ],
+    "stored_version": 0,
+    "now": "2026-11-02T12:00:00Z",
+    "expect": {
+      "accepted": false,
+      "reason": "unknown_key"
+    }
+  },
+  {
+    "name": "expired",
+    "file": "expired.jws",
+    "env": "production",
+    "trusted_kids": [
+      "prod-9999a"
+    ],
+    "stored_version": 0,
+    "now": "2026-11-02T12:00:00Z",
+    "expect": {
+      "accepted": true,
+      "version": 3,
+      "expired": true
+    }
+  },
+  {
+    "name": "rotation",
+    "file": "rotation.jws",
+    "env": "production",
+    "trusted_kids": [
+      "prod-9999a"
+    ],
+    "stored_version": 0,
+    "now": "2026-11-02T12:00:00Z",
+    "expect": {
+      "accepted": true,
+      "version": 3,
+      "expired": false
+    }
+  },
+  {
+    "name": "bad_mirror_scheme",
+    "file": "bad_mirror_scheme.jws",
+    "env": "production",
+    "trusted_kids": [
+      "prod-9999a"
+    ],
+    "stored_version": 0,
+    "now": "2026-11-02T12:00:00Z",
+    "expect": {
+      "accepted": false,
+      "reason": "invalid_manifest"
+    }
+  },
+  {
+    "name": "unknown_schema",
+    "file": "unknown_schema.jws",
+    "env": "production",
+    "trusted_kids": [
+      "prod-9999a"
+    ],
+    "stored_version": 0,
+    "now": "2026-11-02T12:00:00Z",
+    "expect": {
+      "accepted": false,
+      "reason": "unknown_schema"
+    }
+  },
+  {
+    "name": "malformed",
+    "file": "malformed.jws",
+    "env": "production",
+    "trusted_kids": [
+      "prod-9999a"
+    ],
+    "stored_version": 0,
+    "now": "2026-11-02T12:00:00Z",
+    "expect": {
+      "accepted": false,
+      "reason": "malformed"
+    }
+  }
+]

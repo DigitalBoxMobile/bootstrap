@@ -1,0 +1,20 @@
+# Backlog
+
+- **Health-роутер в Traefik для проб клиента.** Сейчас клиент считает домен живым по любому HTTP-ответу Traefik
+  (`docs/client-contract.md`, «Выбор домена»). Добавить в репозитории `traefik` роутер `Path(/healthz)` → `ping@internal`
+  (`--ping=true`) для всех хостов базовых доменов, после чего клиент сможет требовать 200.
+- **Создать зеркала и секреты публикации**: бакеты Yandex и Selectel, сервисные аккаунты, GitHub `konsierge/bootstrap`
+  с deploy-ключом, CNAME `bootstrap.ai-konsierge.ru`, переменные GitLab CI — по README. Подтвердить endpoint и публичный
+  домен Selectel.
+- **Прогнать GitLab CI Lint** для `.gitlab-ci.yml`, когда `gitlab.konsierge.com` доступен (при реализации не резолвился).
+- **Развернуть `bin/check-mirrors` на `proxy`** по cron с push в Uptime Kuma.
+- **Этап 2 — клиентские библиотеки iOS и Android** по `docs/client-contract.md` и `testdata/`: fetch с хеджированием, проверка,
+  кеш, выбор домена, переписывание URL, хук в `URLSession`/OkHttp; встраивание `dist/<env>.jws` и `keys/` в сборку. ~3–5 дней на платформу.
+- **Этап 3 — staging chaos-прогон и релиз**: поменять порядок `base_domains`, убедиться, что клиенты переехали и вернулись после отката.
+- **После первого релиза**: push-канал (FCM/APNs, манифест ≤ 3,5 КБ целиком в push); VK Cloud Object Storage как третий RU-провайдер;
+  домен-«маяк» у третьего регистратора и DNS; HTTP-зеркало по IP-литералу; `services` с явными `urls`; генерация манифеста из инвентаря
+  хостов; CT-мониторинг обоих доменов с алертом на чужой сертификат.
+- **При росте числа подписантов**: TUF-подобный корень (офлайн root подписывает набор ключей манифеста) для отзыва ключа без релиза,
+  порог 2-из-N.
+
+Детали исходного дизайна: `git show 817860a:docs/requests/client-bootstrap-config/design.md`.

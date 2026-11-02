@@ -1,0 +1,31 @@
+{
+  "schema": 1,
+  "env": "staging",
+  "version": 1,
+  "issued_at": "2026-11-02T13:56:07Z",
+  "expires_at": "2027-05-01T13:56:07Z",
+  "base_domains": [
+    "konsierge.com",
+    "ai-konsierge.ru"
+  ],
+  "health_path": "/healthz",
+  "mirrors": [
+    "https://storage.yandexcloud.net/konsierge-bootstrap/v1/staging.jws",
+    "https://konsierge-bootstrap.selstorage.ru/v1/staging.jws",
+    "https://raw.githubusercontent.com/konsierge/bootstrap/master/dist/staging.jws",
+    "https://bootstrap.ai-konsierge.ru/v1/staging.jws"
+  ],
+  "policy": {
+    "connect_timeout_ms": 3000,
+    "probe_interval_s": 600,
+    "refresh_interval_s": 21600
+  },
+  "min_app_version": {
+    "ios": "0",
+    "android": "0"
+  },
+  "notice": {
+    "ru": "",
+    "en": ""
+  }
+}
