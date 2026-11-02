@@ -183,5 +183,34 @@
       "accepted": false,
       "reason": "malformed"
     }
+  },
+  {
+    "name": "version_max",
+    "file": "version_max.jws",
+    "env": "production",
+    "trusted_kids": [
+      "prod-9999a"
+    ],
+    "stored_version": 0,
+    "now": "2026-11-02T12:00:00Z",
+    "expect": {
+      "accepted": true,
+      "version": 9007199254740991,
+      "expired": false
+    }
+  },
+  {
+    "name": "version_overflow",
+    "file": "version_overflow.jws",
+    "env": "production",
+    "trusted_kids": [
+      "prod-9999a"
+    ],
+    "stored_version": 0,
+    "now": "2026-11-02T12:00:00Z",
+    "expect": {
+      "accepted": false,
+      "reason": "invalid_manifest"
+    }
   }
 ]

@@ -17,6 +17,7 @@ EXPIRES_AT = "2027-04-30T00:00:00Z"
 PROD_KID = "prod-9999a"
 STAGE_KID = "stage-9999a"
 FOREIGN_KID = "prod-9999z"
+MAX_SAFE_INTEGER = 2**53 - 1
 
 
 def base_manifest(env: str, version: int = 1) -> dict:
@@ -153,6 +154,14 @@ def generate(directory: Path) -> None:
             sign(unknown_schema, prod_signer),
         ),
         (_vector("malformed", "production", _rejected("malformed")), b"this is not json\n"),
+        (
+            _vector("version_max", "production", _accepted(MAX_SAFE_INTEGER)),
+            sign(base_manifest("production", MAX_SAFE_INTEGER), prod_signer),
+        ),
+        (
+            _vector("version_overflow", "production", _rejected("invalid_manifest")),
+            sign(base_manifest("production", MAX_SAFE_INTEGER + 1), prod_signer),
+        ),
     ]
 
     if directory.exists():

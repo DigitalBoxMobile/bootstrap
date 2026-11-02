@@ -17,7 +17,7 @@
   "properties": {
     "schema": { "const": 1 },
     "env": { "enum": ["production", "staging"] },
-    "version": { "type": "integer", "minimum": 1 },
+    "version": { "type": "integer", "minimum": 1, "maximum": 9007199254740991 },
     "issued_at": { "$ref": "#/$defs/timestamp" },
     "expires_at": { "$ref": "#/$defs/timestamp" },
     "base_domains": {
@@ -37,9 +37,9 @@
       "type": "object",
       "required": ["connect_timeout_ms", "probe_interval_s", "refresh_interval_s"],
       "properties": {
-        "connect_timeout_ms": { "type": "integer", "exclusiveMinimum": 0 },
-        "probe_interval_s": { "type": "integer", "exclusiveMinimum": 0 },
-        "refresh_interval_s": { "type": "integer", "exclusiveMinimum": 0 }
+        "connect_timeout_ms": { "type": "integer", "exclusiveMinimum": 0, "maximum": 9007199254740991 },
+        "probe_interval_s": { "type": "integer", "exclusiveMinimum": 0, "maximum": 9007199254740991 },
+        "refresh_interval_s": { "type": "integer", "exclusiveMinimum": 0, "maximum": 9007199254740991 }
       },
       "additionalProperties": true
     },

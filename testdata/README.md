@@ -46,6 +46,8 @@
 | `bad_mirror_scheme` | отказ `invalid_manifest` |
 | `unknown_schema` | отказ `unknown_schema` |
 | `malformed` | отказ `malformed` |
+| `version_max` | принят, `version` 9007199254740991, `expired: false` |
+| `version_overflow` | отказ `invalid_manifest` |
 
 Все векторы, кроме `malformed`, — General JSON Serialization с `payload` из компактного JSON манифеста;
 `tampered_payload` отличается от `valid` одним символом `payload`, подпись не пересчитана.

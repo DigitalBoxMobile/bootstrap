@@ -52,6 +52,8 @@ def test_vector_names_cover_spec():
         "bad_mirror_scheme",
         "unknown_schema",
         "malformed",
+        "version_max",
+        "version_overflow",
     }
 
 
